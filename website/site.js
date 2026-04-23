@@ -44,7 +44,7 @@ function setStatus(text, isError = false) {
 }
 
 function loadSession() {
-  const serverUrl = localStorage.getItem(storageKeys.serverUrl) || window.location.origin;
+  const serverUrl = window.location.origin;
   const adminKey = localStorage.getItem(storageKeys.adminKey) || "";
   els.serverUrl.value = serverUrl;
   els.adminKey.value = adminKey;
@@ -337,9 +337,10 @@ async function refreshDashboard() {
 
 els.connectForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const serverUrl = els.serverUrl.value.trim().replace(/\/$/, "");
+  const serverUrl = window.location.origin;
   const adminKey = els.adminKey.value.trim();
   try {
+    els.serverUrl.value = serverUrl;
     saveSession(serverUrl, adminKey);
     await refreshDashboard();
   } catch (error) {
@@ -508,8 +509,8 @@ async function init() {
   syncTokenProjectScopeField();
 
   const session = loadSession();
-  els.serverUrl.value = session.serverUrl || window.location.origin;
-  if (session.serverUrl && session.adminKey) {
+  els.serverUrl.value = window.location.origin;
+  if (session.adminKey) {
     try {
       await refreshDashboard();
     } catch (error) {

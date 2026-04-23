@@ -65,10 +65,7 @@
               <h2>所有操作都基于当前 deployd。</h2>
             </div>
             <form id="connect-form" class="connect-form">
-              <label>
-                <span>服务器 URL</span>
-                <input id="server-url" name="server_url" type="url" placeholder="https://q.empjs.dev" required />
-              </label>
+              <input id="server-url" name="server_url" type="hidden" />
               <label>
                 <span>AdminKey</span>
                 <input id="admin-key" name="admin_key" type="password" placeholder="输入 admin secret" required />
@@ -99,30 +96,33 @@
                   <div class="subhead-title">创建新 token</div>
                   <div class="subhead-copy">只在必要时新增。常见场景优先复用现有 token 再生成分享。</div>
                 </div>
-                <form id="token-form" class="stack token-form-compact">
-                  <label class="wide-field">
-                    <span>token 名称</span>
-                    <input name="name" placeholder="prod-agent-token" required />
-                  </label>
-                  <label>
-                    <span>scope</span>
-                    <select name="scope" required>
-                      <option value="read-only">read-only</option>
-                      <option value="project:demo">project:&lt;slug&gt;</option>
-                      <option value="admin">admin</option>
-                    </select>
-                  </label>
-                  <label data-project-scope-field>
-                    <span>project_scope</span>
-                    <input name="project_scope" placeholder="仅 project scope 时填写" />
-                  </label>
-                  <label>
-                    <span>expires_in</span>
-                    <input name="expires_in" placeholder="例如 24h，可留空" />
-                  </label>
-                  <button type="submit" class="button button-primary">创建 token</button>
-                </form>
-                <div id="token-output" class="code-card empty-state">创建后会在这里显示一次性 token。</div>
+                <details class="create-token-details">
+                  <summary>需要时再展开创建</summary>
+                  <form id="token-form" class="stack token-form-compact">
+                    <label class="wide-field">
+                      <span>token 名称</span>
+                      <input name="name" placeholder="prod-agent-token" required />
+                    </label>
+                    <label>
+                      <span>scope</span>
+                      <select name="scope" required>
+                        <option value="read-only">read-only</option>
+                        <option value="project:demo">project:&lt;slug&gt;</option>
+                        <option value="admin">admin</option>
+                      </select>
+                    </label>
+                    <label data-project-scope-field>
+                      <span>project_scope</span>
+                      <input name="project_scope" placeholder="仅 project scope 时填写" />
+                    </label>
+                    <label>
+                      <span>expires_in</span>
+                      <input name="expires_in" placeholder="例如 24h，可留空" />
+                    </label>
+                    <button type="submit" class="button button-primary">创建 token</button>
+                  </form>
+                  <div id="token-output" class="code-card empty-state">创建后会在这里显示一次性 token。</div>
+                </details>
               </div>
             </article>
 

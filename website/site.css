@@ -285,7 +285,7 @@ body {
 
 .connect-form {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr auto;
+  grid-template-columns: minmax(260px, 1fr) auto;
   gap: 18px;
   align-items: end;
 }
@@ -432,6 +432,29 @@ textarea:focus {
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid rgba(93, 65, 40, 0.1);
+}
+
+.create-token-details {
+  margin-top: 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(93, 65, 40, 0.1);
+  background: rgba(255, 255, 255, 0.5);
+  padding: 16px;
+}
+
+.create-token-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--accent);
+  list-style: none;
+}
+
+.create-token-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.create-token-details[open] summary {
+  margin-bottom: 16px;
 }
 
 .subhead-title {
@@ -709,7 +732,6 @@ textarea:focus {
   .dashboard-grid,
   .claim-grid,
   .panel-connect,
-  .connect-form,
   .form-split {
     grid-template-columns: 1fr;
   }
