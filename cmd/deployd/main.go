@@ -1,0 +1,171 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/ckken/deployctl/internal/auth"
+	"github.com/ckken/deployctl/internal/httpapi"
+	"github.com/ckken/deployctl/internal/types"
+)
+
+const defaultDataDir = ".deployctl-data"
+
+func usage() {
+	fmt.Fprintf(os.Stderr, `deployd - token-only auth server
+
+Usage:
+  deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret secret
+  deployd admin create-token --data-dir ./.deployctl-data --admin-secret secret --name ci-bot --scope read-only
+  deployd admin list-tokens --data-dir ./.deployctl-data --admin-secret secret
+  deployd admin revoke-token --data-dir ./.deployctl-data --admin-secret secret --token-id tok_xxx
+`)
+}
+
+func mustStore(dataDir string) *auth.Store {
+	store := auth.NewStore(dataDir)
+	if err := store.Load(); err != nil {
+		log.Fatal(err)
+	}
+	return store
+}
+
+func requireAdminSecret(secret string) {
+	if secret == "" {
+		log.Fatal("admin secret is required")
+	}
+}
+
+func printJSON(v any) {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runServe(args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	listen := fs.String("listen", ":7319", "listen address")
+	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
+	adminSecret := fs.String("admin-secret", "", "admin secret")
+	fs.Parse(args)
+	requireAdminSecret(*adminSecret)
+
+	store := mustStore(*dataDir)
+	srv := &http.Server{
+		Addr:              *listen,
+		Handler:           httpapi.New(store, *adminSecret).Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	log.Printf("deployd listening on %s", *listen)
+	return srv.ListenAndServe()
+}
+
+func runAdminCreate(args []string) error {
+	fs := flag.NewFlagSet("create-token", flag.ExitOnError)
+	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
+	adminSecret := fs.String("admin-secret", "", "admin secret")
+	name := fs.String("name", "", "token name")
+	scope := fs.String("scope", "", "token scope")
+	projectScope := fs.String("project-scope", "", "project scope")
+	expiresIn := fs.String("expires-in", "", "expiry duration")
+	fs.Parse(args)
+	requireAdminSecret(*adminSecret)
+
+	store := mustStore(*dataDir)
+	resp, err := store.CreateToken(context.Background(), types.CreateTokenRequest{
+		Name:         *name,
+		Scope:        *scope,
+		ProjectScope: *projectScope,
+		ExpiresIn:    *expiresIn,
+	})
+	if err != nil {
+		return err
+	}
+	printJSON(resp)
+	return nil
+}
+
+func runAdminList(args []string) error {
+	fs := flag.NewFlagSet("list-tokens", flag.ExitOnError)
+	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
+	adminSecret := fs.String("admin-secret", "", "admin secret")
+	fs.Parse(args)
+	requireAdminSecret(*adminSecret)
+
+	store := mustStore(*dataDir)
+	records, err := store.ListTokens()
+	if err != nil {
+		return err
+	}
+	printJSON(records)
+	return nil
+}
+
+func runAdminRevoke(args []string) error {
+	fs := flag.NewFlagSet("revoke-token", flag.ExitOnError)
+	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
+	adminSecret := fs.String("admin-secret", "", "admin secret")
+	tokenID := fs.String("token-id", "", "token id")
+	fs.Parse(args)
+	requireAdminSecret(*adminSecret)
+	if *tokenID == "" {
+		return errors.New("token-id is required")
+	}
+
+	store := mustStore(*dataDir)
+	resp, err := store.RevokeToken(*tokenID)
+	if err != nil {
+		return err
+	}
+	printJSON(resp)
+	return nil
+}
+
+func main() {
+	log.SetFlags(0)
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+
+	var err error
+	switch os.Args[1] {
+	case "serve":
+		err = runServe(os.Args[2:])
+	case "admin":
+		if len(os.Args) < 3 {
+			usage()
+			os.Exit(2)
+		}
+		switch os.Args[2] {
+		case "create-token":
+			err = runAdminCreate(os.Args[3:])
+		case "list-tokens":
+			err = runAdminList(os.Args[3:])
+		case "revoke-token":
+			err = runAdminRevoke(os.Args[3:])
+		default:
+			usage()
+			os.Exit(2)
+		}
+	default:
+		usage()
+		os.Exit(2)
+	}
+
+	if err != nil {
+		if errors.Is(err, http.ErrServerClosed) {
+			return
+		}
+		log.Fatal(err)
+	}
+}
