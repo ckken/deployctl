@@ -84,12 +84,7 @@ function renderRecordList(container, items, render) {
 }
 
 function agentLinkForShare(serverUrl, share) {
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("share", share.share_id);
-  url.searchParams.set("code", share.share_code);
-  return url.toString();
+  return share.share_url || new URL(`/s/${share.share_code}`, serverUrl).toString();
 }
 
 function buildAgentPrompt(serverUrl, resolve) {
@@ -111,10 +106,16 @@ function buildAgentPrompt(serverUrl, resolve) {
 6. 返回 doctor_json、whoami_json、server_url、token_scope
 
 claim 示例：
-curl -X POST "${new URL("/v1/share-links/claim", serverUrl)}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"share_id":"${resolve.share_id}","code":"${new URLSearchParams(window.location.search).get("code") || ""}"}'
+curl "${new URL(`/v1/share-links/claim?code=${extractShareCode()}`, serverUrl)}"
 `;
+}
+
+function extractShareCode() {
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get("code");
+  if (fromQuery) return fromQuery;
+  const match = window.location.pathname.match(/^\/s\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : "";
 }
 
 async function revokeResource(kind, id) {
@@ -263,11 +264,10 @@ els.shareForm?.addEventListener("submit", async (event) => {
 
 async function bootShareClaimView() {
   const params = new URLSearchParams(window.location.search);
-  const shareId = params.get("share");
-  const code = params.get("code");
+  const code = extractShareCode();
   const serverUrl = params.get("server") || window.location.origin;
 
-  if (!shareId || !code) {
+  if (!code) {
     return false;
   }
 
@@ -277,7 +277,6 @@ async function bootShareClaimView() {
 
   try {
     const resolveUrl = new URL("/v1/share-links/resolve", serverUrl);
-    resolveUrl.searchParams.set("share_id", shareId);
     resolveUrl.searchParams.set("code", code);
     const response = await fetch(resolveUrl);
     const result = await response.json();
@@ -290,10 +289,9 @@ async function bootShareClaimView() {
 
     els.claimShare.onclick = async () => {
       try {
-        const claimResult = await apiRequest("/v1/share-links/claim", {
-          method: "POST",
+        const claimResult = await apiRequest(`/v1/share-links/claim?code=${encodeURIComponent(code)}`, {
+          method: "GET",
           serverUrl,
-          body: { share_id: shareId, code },
         });
         els.claimOutput.className = "code-card";
         els.claimOutput.textContent = formatJSON(claimResult);

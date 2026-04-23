@@ -153,7 +153,7 @@ func TestShareLinkHTTPFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resolveResp, err := http.Get(srv.URL + "/v1/share-links/resolve?share_id=" + created.ShareID + "&code=" + created.ShareCode)
+	resolveResp, err := http.Get(srv.URL + "/v1/share-links/resolve?code=" + created.ShareCode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,12 +161,10 @@ func TestShareLinkHTTPFlow(t *testing.T) {
 		t.Fatalf("expected 200 on resolve, got %d", resolveResp.StatusCode)
 	}
 
-	claimBody := `{"share_id":"` + created.ShareID + `","code":"` + created.ShareCode + `"}`
-	claimReq, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/share-links/claim", strings.NewReader(claimBody))
+	claimReq, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/share-links/claim?code="+created.ShareCode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimReq.Header.Set("Content-Type", "application/json")
 	claimResp, err := http.DefaultClient.Do(claimReq)
 	if err != nil {
 		t.Fatal(err)

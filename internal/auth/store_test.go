@@ -121,7 +121,7 @@ func TestShareLinkResolveAndClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resolveResp, err := store.ResolveShareLink(shareResp.ShareID, shareResp.ShareCode, "https://deploy.example.com")
+	resolveResp, err := store.ResolveShareLink("", shareResp.ShareCode, "https://deploy.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,8 +143,7 @@ func TestShareLinkResolveAndClaim(t *testing.T) {
 		t.Fatalf("expected claimed token to validate: %v", err)
 	}
 	if _, err := store.ClaimShareLink(types.ClaimShareLinkRequest{
-		ShareID: shareResp.ShareID,
-		Code:    shareResp.ShareCode,
+		Code: shareResp.ShareCode,
 	}, "https://deploy.example.com"); err != ErrClaimLimitReached {
 		t.Fatalf("expected claim limit error, got %v", err)
 	}

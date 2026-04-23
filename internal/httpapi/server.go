@@ -96,6 +96,12 @@ func staticHandler(webDir string) http.Handler {
 		if requestPath == "" {
 			requestPath = "index.html"
 		}
+		if strings.HasPrefix(requestPath, "s/") {
+			if _, err := os.Stat(indexPath); err == nil {
+				http.ServeFile(w, r, indexPath)
+				return
+			}
+		}
 
 		candidate := filepath.Join(webDir, filepath.Clean(requestPath))
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
@@ -310,14 +316,21 @@ func (s *Server) APIHandler() http.Handler {
 	})
 
 	mux.HandleFunc("/v1/share-links/claim", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 		var req types.ClaimShareLinkRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid json")
-			return
+		if r.Method == http.MethodGet {
+			req = types.ClaimShareLinkRequest{
+				ShareID: r.URL.Query().Get("share_id"),
+				Code:    r.URL.Query().Get("code"),
+			}
+		} else {
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid json")
+				return
+			}
 		}
 		resp, err := s.store.ClaimShareLink(req, publicBaseURL(r))
 		switch err {

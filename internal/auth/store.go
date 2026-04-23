@@ -304,14 +304,19 @@ func (s *Store) ValidateToken(raw string) (*types.TokenRecord, error) {
 	return nil, ErrInvalidToken
 }
 
-func buildClaimURL(publicBaseURL string, shareID string) string {
+func buildShareURL(publicBaseURL string, shareCode string) string {
 	base := strings.TrimRight(publicBaseURL, "/")
-	return base + "/v1/share-links/claim?share_id=" + url.QueryEscape(shareID)
+	return base + "/s/" + url.PathEscape(shareCode)
 }
 
-func buildResolveURL(publicBaseURL string, shareID string) string {
+func buildClaimURL(publicBaseURL string, shareCode string) string {
 	base := strings.TrimRight(publicBaseURL, "/")
-	return base + "/v1/share-links/resolve?share_id=" + url.QueryEscape(shareID)
+	return base + "/v1/share-links/claim?code=" + url.QueryEscape(shareCode)
+}
+
+func buildResolveURL(publicBaseURL string, shareCode string) string {
+	base := strings.TrimRight(publicBaseURL, "/")
+	return base + "/v1/share-links/resolve?code=" + url.QueryEscape(shareCode)
 }
 
 func (s *Store) CreateShareLink(req types.CreateShareLinkRequest, publicBaseURL string) (*types.CreateShareLinkResponse, error) {
@@ -375,8 +380,9 @@ func (s *Store) CreateShareLink(req types.CreateShareLinkRequest, publicBaseURL 
 		TokenExpiresIn: record.TokenExpiresIn,
 		MaxClaims:      record.MaxClaims,
 		ExpiresAt:      record.ExpiresAt,
-		ResolveURL:     buildResolveURL(publicBaseURL, shareID),
-		ClaimURL:       buildClaimURL(publicBaseURL, shareID),
+		ShareURL:       buildShareURL(publicBaseURL, shareCode),
+		ResolveURL:     buildResolveURL(publicBaseURL, shareCode),
+		ClaimURL:       buildClaimURL(publicBaseURL, shareCode),
 	}, nil
 }
 
@@ -432,17 +438,32 @@ func validateShare(record *types.ShareLinkRecord, code string) error {
 	return nil
 }
 
+func findShareRecord(records []types.ShareLinkRecord, shareID string, code string) *types.ShareLinkRecord {
+	hashedCode := ""
+	if code != "" {
+		hashedCode = hashSecret(code)
+	}
+	for i := range records {
+		record := &records[i]
+		if shareID != "" && record.ShareID == shareID {
+			return record
+		}
+		if hashedCode != "" && record.ShareCodeHash == hashedCode {
+			return record
+		}
+	}
+	return nil
+}
+
 func (s *Store) ResolveShareLink(shareID string, code string, publicBaseURL string) (*types.ResolveShareLinkResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.loadLocked(); err != nil {
 		return nil, err
 	}
-	for _, record := range s.shares {
-		if record.ShareID != shareID {
-			continue
-		}
-		if err := validateShare(&record, code); err != nil {
+	record := findShareRecord(s.shares, shareID, code)
+	if record != nil {
+		if err := validateShare(record, code); err != nil {
 			return nil, err
 		}
 		return &types.ResolveShareLinkResponse{
@@ -452,7 +473,7 @@ func (s *Store) ResolveShareLink(shareID string, code string, publicBaseURL stri
 			Scope:        record.Scope,
 			ProjectScope: record.ProjectScope,
 			ServerURL:    strings.TrimRight(publicBaseURL, "/"),
-			ClaimURL:     buildClaimURL(publicBaseURL, record.ShareID),
+			ClaimURL:     buildClaimURL(publicBaseURL, code),
 			Valid:        true,
 			MaxClaims:    record.MaxClaims,
 			ClaimCount:   record.ClaimCount,
@@ -463,7 +484,7 @@ func (s *Store) ResolveShareLink(shareID string, code string, publicBaseURL stri
 }
 
 func (s *Store) ClaimShareLink(req types.ClaimShareLinkRequest, publicBaseURL string) (*types.ClaimShareLinkResponse, error) {
-	if req.ShareID == "" || req.Code == "" {
+	if req.Code == "" && req.ShareID == "" {
 		return nil, ErrInvalidShareLink
 	}
 
@@ -473,11 +494,8 @@ func (s *Store) ClaimShareLink(req types.ClaimShareLinkRequest, publicBaseURL st
 		return nil, err
 	}
 
-	for i := range s.shares {
-		record := &s.shares[i]
-		if record.ShareID != req.ShareID {
-			continue
-		}
+	record := findShareRecord(s.shares, req.ShareID, req.Code)
+	if record != nil {
 		if err := validateShare(record, req.Code); err != nil {
 			return nil, err
 		}

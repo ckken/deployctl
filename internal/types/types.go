@@ -112,6 +112,7 @@ type CreateShareLinkResponse struct {
 	TokenExpiresIn string     `json:"token_expires_in,omitempty"`
 	MaxClaims      int        `json:"max_claims"`
 	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	ShareURL       string     `json:"share_url"`
 	ResolveURL     string     `json:"resolve_url"`
 	ClaimURL       string     `json:"claim_url"`
 }
