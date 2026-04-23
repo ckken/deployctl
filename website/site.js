@@ -30,7 +30,7 @@ function setStatus(text, isError = false) {
 }
 
 function loadSession() {
-  const serverUrl = localStorage.getItem(storageKeys.serverUrl) || "";
+  const serverUrl = localStorage.getItem(storageKeys.serverUrl) || window.location.origin;
   const adminKey = localStorage.getItem(storageKeys.adminKey) || "";
   els.serverUrl.value = serverUrl;
   els.adminKey.value = adminKey;
@@ -43,9 +43,9 @@ function saveSession(serverUrl, adminKey) {
 }
 
 function clearSession() {
-  localStorage.removeItem(storageKeys.serverUrl);
+  localStorage.setItem(storageKeys.serverUrl, window.location.origin);
   localStorage.removeItem(storageKeys.adminKey);
-  els.serverUrl.value = "";
+  els.serverUrl.value = window.location.origin;
   els.adminKey.value = "";
   els.dashboard.classList.add("hidden");
   setStatus("已清空本地凭据。");
@@ -87,7 +87,6 @@ function agentLinkForShare(serverUrl, share) {
   const url = new URL(window.location.href);
   url.search = "";
   url.hash = "";
-  url.searchParams.set("server", serverUrl);
   url.searchParams.set("share", share.share_id);
   url.searchParams.set("code", share.share_code);
   return url.toString();
@@ -266,9 +265,9 @@ async function bootShareClaimView() {
   const params = new URLSearchParams(window.location.search);
   const shareId = params.get("share");
   const code = params.get("code");
-  const serverUrl = params.get("server");
+  const serverUrl = params.get("server") || window.location.origin;
 
-  if (!shareId || !code || !serverUrl) {
+  if (!shareId || !code) {
     return false;
   }
 
@@ -316,6 +315,7 @@ async function init() {
   if (inShareMode) return;
 
   const session = loadSession();
+  els.serverUrl.value = session.serverUrl || window.location.origin;
   if (session.serverUrl && session.adminKey) {
     try {
       await refreshDashboard();

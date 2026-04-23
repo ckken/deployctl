@@ -38,9 +38,12 @@ jobs:
           mkdir -p dist
           go build -o "dist/deployctl-${GOOS}-${GOARCH}" ./cmd/deployctl
           go build -o "dist/deployd-${GOOS}-${GOARCH}" ./cmd/deployd
-          tar -C dist -czf "dist/deployctl_${GOOS}_${GOARCH}.tar.gz" \
-            "deployctl-${GOOS}-${GOARCH}" \
-            "deployd-${GOOS}-${GOARCH}"
+          rm -rf "dist/package-${GOOS}-${GOARCH}"
+          mkdir -p "dist/package-${GOOS}-${GOARCH}/website"
+          cp "dist/deployctl-${GOOS}-${GOARCH}" "dist/package-${GOOS}-${GOARCH}/"
+          cp "dist/deployd-${GOOS}-${GOARCH}" "dist/package-${GOOS}-${GOARCH}/"
+          cp -R website/. "dist/package-${GOOS}-${GOARCH}/website/"
+          tar -C "dist/package-${GOOS}-${GOARCH}" -czf "dist/deployctl_${GOOS}_${GOARCH}.tar.gz" .
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2

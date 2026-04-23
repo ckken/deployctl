@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ckken/deployctl/internal/auth"
@@ -82,6 +84,33 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
+func staticHandler(webDir string) http.Handler {
+	if webDir == "" {
+		return http.NotFoundHandler()
+	}
+	fileServer := http.FileServer(http.Dir(webDir))
+	indexPath := filepath.Join(webDir, "index.html")
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath := strings.TrimPrefix(r.URL.Path, "/")
+		if requestPath == "" {
+			requestPath = "index.html"
+		}
+
+		candidate := filepath.Join(webDir, filepath.Clean(requestPath))
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		if _, err := os.Stat(indexPath); err == nil {
+			http.ServeFile(w, r, indexPath)
+			return
+		}
+		http.NotFound(w, r)
+	})
+}
+
 func (s *Server) adminBootstrap(w http.ResponseWriter, r *http.Request) {
 	if !s.validateAdmin(r) {
 		writeError(w, http.StatusUnauthorized, "invalid_admin_secret", "admin secret is invalid")
@@ -104,7 +133,7 @@ func (s *Server) adminBootstrap(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) Handler() http.Handler {
+func (s *Server) APIHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, r *http.Request) {
@@ -308,4 +337,17 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	return withCORS(mux)
+}
+
+func (s *Server) Handler(webDir string) http.Handler {
+	api := s.APIHandler()
+	static := staticHandler(webDir)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/") {
+			api.ServeHTTP(w, r)
+			return
+		}
+		static.ServeHTTP(w, r)
+	})
 }

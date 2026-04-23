@@ -50,6 +50,7 @@
 
 - `deployctl`
 - `deployd`
+- `website/`
 
 服务器侧可以直接下载并解压，例如：
 
@@ -66,6 +67,12 @@ mv deployd-linux-amd64 /usr/local/bin/deployd
 ```bash
 mv deployctl-linux-amd64 deployctl
 mv deployd-linux-amd64 deployd
+```
+
+启动时记得把首页目录一起挂进去：
+
+```bash
+deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret <secret> --web-dir ./website
 ```
 
 ## 本地运行

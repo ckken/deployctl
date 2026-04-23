@@ -18,7 +18,7 @@ func newTestServer(t *testing.T) (*auth.Store, *httptest.Server) {
 	if err := store.Load(); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(New(store, "secret").Handler())
+	srv := httptest.NewServer(New(store, "secret").Handler(""))
 	return store, srv
 }
 

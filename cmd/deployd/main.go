@@ -22,7 +22,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `deployd - token-only auth server
 
 Usage:
-  deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret secret
+  deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret secret --web-dir ./website
   deployd admin create-token --data-dir ./.deployctl-data --admin-secret secret --name ci-bot --scope read-only
   deployd admin list-tokens --data-dir ./.deployctl-data --admin-secret secret
   deployd admin revoke-token --data-dir ./.deployctl-data --admin-secret secret --token-id tok_xxx
@@ -56,16 +56,17 @@ func runServe(args []string) error {
 	listen := fs.String("listen", ":7319", "listen address")
 	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
 	adminSecret := fs.String("admin-secret", "", "admin secret")
+	webDir := fs.String("web-dir", "./website", "website directory to serve at /")
 	fs.Parse(args)
 	requireAdminSecret(*adminSecret)
 
 	store := mustStore(*dataDir)
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           httpapi.New(store, *adminSecret).Handler(),
+		Handler:           httpapi.New(store, *adminSecret).Handler(*webDir),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	log.Printf("deployd listening on %s", *listen)
+	log.Printf("deployd listening on %s (web_dir=%s)", *listen, *webDir)
 	return srv.ListenAndServe()
 }
 
