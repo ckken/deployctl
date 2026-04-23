@@ -129,3 +129,56 @@ func TestAdminSecretAndRevoke(t *testing.T) {
 		t.Fatalf("expected revoked token, got %v", err)
 	}
 }
+
+func TestShareLinkHTTPFlow(t *testing.T) {
+	_, srv := newTestServer(t)
+	defer srv.Close()
+
+	createReq := `{"share_name":"demo handoff","token_name":"agent-bot","scope":"project:demo","project_scope":"demo","share_expires_in":"1h","token_expires_in":"12h","max_claims":1}`
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/share-links", strings.NewReader(createReq))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Admin-Secret", "secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var created types.CreateShareLinkResponse
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+
+	resolveResp, err := http.Get(srv.URL + "/v1/share-links/resolve?share_id=" + created.ShareID + "&code=" + created.ShareCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolveResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on resolve, got %d", resolveResp.StatusCode)
+	}
+
+	claimBody := `{"share_id":"` + created.ShareID + `","code":"` + created.ShareCode + `"}`
+	claimReq, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/share-links/claim", strings.NewReader(claimBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimReq.Header.Set("Content-Type", "application/json")
+	claimResp, err := http.DefaultClient.Do(claimReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on claim, got %d", claimResp.StatusCode)
+	}
+	var claimed types.ClaimShareLinkResponse
+	if err := json.NewDecoder(claimResp.Body).Decode(&claimed); err != nil {
+		t.Fatal(err)
+	}
+	if claimed.Token == "" || claimed.ProjectScope != "demo" {
+		t.Fatalf("unexpected claim response: %+v", claimed)
+	}
+}

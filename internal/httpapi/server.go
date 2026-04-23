@@ -59,6 +59,51 @@ func (s *Server) validateCaller(r *http.Request) (*types.TokenRecord, int, strin
 	}
 }
 
+func publicBaseURL(r *http.Request) string {
+	scheme := "http"
+	if forwarded := r.Header.Get("X-Forwarded-Proto"); forwarded != "" {
+		scheme = forwarded
+	} else if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
+}
+
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Secret")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) adminBootstrap(w http.ResponseWriter, r *http.Request) {
+	if !s.validateAdmin(r) {
+		writeError(w, http.StatusUnauthorized, "invalid_admin_secret", "admin secret is invalid")
+		return
+	}
+	tokens, err := s.store.ListTokens()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+		return
+	}
+	shares, err := s.store.ListShareLinks()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, types.AdminBootstrapResponse{
+		ServerURL:  publicBaseURL(r),
+		Tokens:     tokens,
+		ShareLinks: shares,
+	})
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -87,6 +132,14 @@ func (s *Server) Handler() http.Handler {
 			ProjectScope: record.ProjectScope,
 			ExpiresAt:    record.ExpiresAt,
 		})
+	})
+
+	mux.HandleFunc("/v1/admin/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		s.adminBootstrap(w, r)
 	})
 
 	mux.HandleFunc("/v1/admin/tokens", func(w http.ResponseWriter, r *http.Request) {
@@ -128,10 +181,7 @@ func (s *Server) Handler() http.Handler {
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-
-		prefix := "/v1/admin/tokens/"
-		trimmed := strings.TrimPrefix(r.URL.Path, prefix)
-		tokenID := strings.TrimSuffix(trimmed, "/revoke")
+		tokenID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/admin/tokens/"), "/revoke")
 		tokenID = strings.TrimSuffix(tokenID, "/")
 		if tokenID == "" {
 			writeError(w, http.StatusBadRequest, "invalid_token_id", "token id is required")
@@ -149,5 +199,113 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, resp)
 	})
 
-	return mux
+	mux.HandleFunc("/v1/admin/share-links", func(w http.ResponseWriter, r *http.Request) {
+		if !s.validateAdmin(r) {
+			writeError(w, http.StatusUnauthorized, "invalid_admin_secret", "admin secret is invalid")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			records, err := s.store.ListShareLinks()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, records)
+		case http.MethodPost:
+			var req types.CreateShareLinkRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid json")
+				return
+			}
+			resp, err := s.store.CreateShareLink(req, publicBaseURL(r))
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusCreated, resp)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})
+
+	mux.HandleFunc("/v1/admin/share-links/", func(w http.ResponseWriter, r *http.Request) {
+		if !s.validateAdmin(r) {
+			writeError(w, http.StatusUnauthorized, "invalid_admin_secret", "admin secret is invalid")
+			return
+		}
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/revoke") {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		shareID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/admin/share-links/"), "/revoke")
+		shareID = strings.TrimSuffix(shareID, "/")
+		if shareID == "" {
+			writeError(w, http.StatusBadRequest, "invalid_share_id", "share id is required")
+			return
+		}
+		resp, err := s.store.RevokeShareLink(shareID)
+		if err == auth.ErrInvalidShareLink {
+			writeError(w, http.StatusNotFound, "not_found", "share link not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	})
+
+	mux.HandleFunc("/v1/share-links/resolve", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		shareID := r.URL.Query().Get("share_id")
+		code := r.URL.Query().Get("code")
+		resp, err := s.store.ResolveShareLink(shareID, code, publicBaseURL(r))
+		switch err {
+		case nil:
+			writeJSON(w, http.StatusOK, resp)
+		case auth.ErrInvalidShareLink:
+			writeError(w, http.StatusUnauthorized, "invalid_share_link", "share link is invalid")
+		case auth.ErrExpiredShareLink:
+			writeError(w, http.StatusUnauthorized, "expired_share_link", "share link has expired")
+		case auth.ErrRevokedShareLink:
+			writeError(w, http.StatusUnauthorized, "revoked_share_link", "share link has been revoked")
+		case auth.ErrClaimLimitReached:
+			writeError(w, http.StatusUnauthorized, "claim_limit_reached", "share link claim limit reached")
+		default:
+			writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+		}
+	})
+
+	mux.HandleFunc("/v1/share-links/claim", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		var req types.ClaimShareLinkRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid json")
+			return
+		}
+		resp, err := s.store.ClaimShareLink(req, publicBaseURL(r))
+		switch err {
+		case nil:
+			writeJSON(w, http.StatusOK, resp)
+		case auth.ErrInvalidShareLink:
+			writeError(w, http.StatusUnauthorized, "invalid_share_link", "share link is invalid")
+		case auth.ErrExpiredShareLink:
+			writeError(w, http.StatusUnauthorized, "expired_share_link", "share link has expired")
+		case auth.ErrRevokedShareLink:
+			writeError(w, http.StatusUnauthorized, "revoked_share_link", "share link has been revoked")
+		case auth.ErrClaimLimitReached:
+			writeError(w, http.StatusUnauthorized, "claim_limit_reached", "share link claim limit reached")
+		default:
+			writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+		}
+	})
+
+	return withCORS(mux)
 }
