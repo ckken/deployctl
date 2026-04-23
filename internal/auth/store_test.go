@@ -148,3 +148,36 @@ func TestShareLinkResolveAndClaim(t *testing.T) {
 		t.Fatalf("expected claim limit error, got %v", err)
 	}
 }
+
+func TestRevokeShareLinkDeletesRecord(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	shareResp, err := store.CreateShareLink(types.CreateShareLinkRequest{
+		ShareName:    "agent access",
+		TokenName:    "agent-bot",
+		Scope:        "read-only",
+		MaxClaims:    1,
+	}, "https://deploy.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.RevokeShareLink(shareResp.ShareID); err != nil {
+		t.Fatal(err)
+	}
+
+	shares, err := store.ListShareLinks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shares) != 0 {
+		t.Fatalf("expected share link to be removed, got %d records", len(shares))
+	}
+
+	if _, err := store.ResolveShareLink("", shareResp.ShareCode, "https://deploy.example.com"); err != ErrInvalidShareLink {
+		t.Fatalf("expected invalid share link after delete, got %v", err)
+	}
+}

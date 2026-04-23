@@ -180,3 +180,68 @@ func TestShareLinkHTTPFlow(t *testing.T) {
 		t.Fatalf("unexpected claim response: %+v", claimed)
 	}
 }
+
+func TestRevokedShareLinkDisappearsFromBootstrap(t *testing.T) {
+	_, srv := newTestServer(t)
+	defer srv.Close()
+
+	createReq := `{"share_name":"demo handoff","token_name":"agent-bot","scope":"read-only","max_claims":1}`
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/share-links", strings.NewReader(createReq))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Admin-Secret", "secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var created types.CreateShareLinkResponse
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+
+	revokeReq, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/share-links/"+created.ShareID+"/revoke", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revokeReq.Header.Set("X-Admin-Secret", "secret")
+	revokeResp, err := http.DefaultClient.Do(revokeReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revokeResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on revoke, got %d", revokeResp.StatusCode)
+	}
+
+	bootstrapReq, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/admin/bootstrap", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapReq.Header.Set("X-Admin-Secret", "secret")
+	bootstrapResp, err := http.DefaultClient.Do(bootstrapReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bootstrapResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on bootstrap, got %d", bootstrapResp.StatusCode)
+	}
+	var bootstrap types.AdminBootstrapResponse
+	if err := json.NewDecoder(bootstrapResp.Body).Decode(&bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	if len(bootstrap.ShareLinks) != 0 {
+		t.Fatalf("expected deleted share link to disappear from bootstrap, got %d items", len(bootstrap.ShareLinks))
+	}
+
+	resolveResp, err := http.Get(srv.URL + "/v1/share-links/resolve?code=" + created.ShareCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolveResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 after delete, got %d", resolveResp.StatusCode)
+	}
+}

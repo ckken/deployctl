@@ -226,6 +226,50 @@ textarea {
 
 .hidden { display: none; }
 
+.token-form-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+[data-project-scope-field].hidden {
+  display: none;
+}
+
+.share-builder-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.selected-token {
+  margin-bottom: 16px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(24, 61, 52, 0.92), rgba(32, 22, 14, 0.92));
+  color: #f8ebdd;
+  padding: 18px;
+}
+
+.selected-token.empty-state {
+  background: rgba(255,255,255,0.72);
+  color: var(--muted);
+}
+
+.selected-token-name {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.selected-token-meta {
+  margin-top: 8px;
+  color: rgba(248, 235, 221, 0.82);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 .record {
   padding: 16px 0;
   border-bottom: 1px solid rgba(255,255,255,0.1);
@@ -237,6 +281,31 @@ textarea {
   margin-top: 6px;
   color: #d6c2af;
   font-size: 12px;
+}
+
+.record-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.button.is-selected {
+  background: var(--deep);
+  color: #f7ede3;
+  border-color: transparent;
+}
+
+.share-link {
+  display: inline-flex;
+  margin-top: 10px;
+  color: #ffe6d2;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(255, 230, 210, 0.4);
+}
+
+.share-link:hover {
+  border-bottom-color: rgba(255, 230, 210, 0.9);
 }
 
 .prompt-box {
@@ -253,6 +322,9 @@ textarea {
   }
   .hero { min-height: auto; }
   .hero h1 { max-width: none; }
+  .token-form-compact {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {

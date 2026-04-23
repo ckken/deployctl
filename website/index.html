@@ -24,10 +24,10 @@
       <section class="hero">
         <div>
           <div class="eyebrow">deployctl · admin homepage</div>
-          <h1>用一个首页，把 admin 管理、用户 token 和 agent 接管链接组织起来。</h1>
+          <h1>把 token 管理和 agent 分享，压缩成一个 dashboard。</h1>
           <p class="lead">
-            这里不是文档页，而是 deployctl 的首页管理台。管理员输入 deployd 服务域名和
-            `adminKey` 后，可以直接创建 token、生成 share link，并把链接交给 agent 自助接管。
+            这里不是文档页，而是 deployctl 的管理首页。连上 deployd 之后，先创建或选择一个已有
+            token，再用最少字段直接生成给 agent 的分享链接。
           </p>
         </div>
         <aside class="status-card">
@@ -68,16 +68,16 @@
       <section class="section hidden" id="dashboard">
         <div class="section-head">
           <span class="section-tag">Admin</span>
-          <h2>创建 token 与 share link。</h2>
+          <h2>先建 token，再从已有 token 直接生成分享。</h2>
         </div>
 
         <div class="dashboard-grid">
           <article class="panel">
             <div class="panel-head">
-              <h3>创建用户 token</h3>
+              <h3>新建 token</h3>
             </div>
-            <form id="token-form" class="stack">
-              <label>
+            <form id="token-form" class="stack token-form-compact">
+              <label class="wide-field">
                 <span>token 名称</span>
                 <input name="name" placeholder="demo-user" required />
               </label>
@@ -89,7 +89,7 @@
                   <option value="admin">admin</option>
                 </select>
               </label>
-              <label>
+              <label data-project-scope-field>
                 <span>project_scope</span>
                 <input name="project_scope" placeholder="仅 scope 为 project:xxx 时填写" />
               </label>
@@ -102,44 +102,30 @@
             <div id="token-output" class="code-card empty-state">创建后会在这里显示一次性 token。</div>
           </article>
 
-          <article class="panel">
+          <article class="panel share-builder-panel">
             <div class="panel-head">
-              <h3>生成分享链接</h3>
+              <h3>从已有 token 生成分享</h3>
             </div>
-            <form id="share-form" class="stack">
-              <label>
+            <div id="selected-token-card" class="selected-token empty-state">
+              先在左侧选择一个 token。选中后，这里会自动带出默认分享配置。
+            </div>
+            <form id="share-form" class="stack hidden">
+              <label class="wide-field">
                 <span>分享名称</span>
                 <input name="share_name" placeholder="agent-handoff" required />
-              </label>
-              <label>
-                <span>agent token 名称</span>
-                <input name="token_name" placeholder="agent-bot" required />
-              </label>
-              <label>
-                <span>scope</span>
-                <select name="scope" required>
-                  <option value="read-only">read-only</option>
-                  <option value="project:demo">project:&lt;slug&gt;</option>
-                  <option value="admin">admin</option>
-                </select>
-              </label>
-              <label>
-                <span>project_scope</span>
-                <input name="project_scope" placeholder="仅 scope 为 project:xxx 时填写" />
               </label>
               <label>
                 <span>share_expires_in</span>
                 <input name="share_expires_in" placeholder="例如 24h" value="24h" />
               </label>
               <label>
-                <span>token_expires_in</span>
-                <input name="token_expires_in" placeholder="例如 7d，可留空" />
-              </label>
-              <label>
                 <span>max_claims</span>
                 <input name="max_claims" type="number" min="1" value="1" />
               </label>
-              <button type="submit" class="button button-primary">生成 share link</button>
+              <div class="actions">
+                <button type="submit" class="button button-primary">生成分享链接</button>
+                <button id="clear-selected-token" type="button" class="button button-secondary">取消选择</button>
+              </div>
             </form>
             <div id="share-output" class="code-card empty-state">生成后会在这里给出可直接发给 agent 的链接。</div>
           </article>
@@ -148,7 +134,7 @@
         <div class="dashboard-grid">
           <article class="panel">
             <div class="panel-head">
-              <h3>已创建 token</h3>
+              <h3>可分享 token</h3>
               <button id="refresh-data" class="button button-secondary" type="button">刷新</button>
             </div>
             <div id="tokens-list" class="list-card empty-state">暂无数据。</div>

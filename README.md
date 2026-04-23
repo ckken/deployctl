@@ -42,9 +42,10 @@
 1. 先部署 `deployd`
 2. 打开部署域名上的首页管理台
 3. 输入 deployd 的服务域名和 `adminKey`
-4. 创建 share link
-5. 把生成的 agent link 发给 agent
-6. agent 打开链接后领取 token，再继续调用 deployd API
+4. 先创建或选择一个已有 token
+5. 从选中的 token 直接生成 share link
+6. 把生成的 agent link 发给 agent
+7. agent 打开链接后领取 token，再继续调用 deployd API
 
 ## GitHub 二进制
 

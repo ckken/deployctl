@@ -3,6 +3,12 @@ const storageKeys = {
   adminKey: "deployctl.adminKey",
 };
 
+const state = {
+  tokens: [],
+  shares: [],
+  selectedTokenId: "",
+};
+
 const els = {
   connectForm: document.getElementById("connect-form"),
   serverUrl: document.getElementById("server-url"),
@@ -18,6 +24,8 @@ const els = {
   refreshData: document.getElementById("refresh-data"),
   tokensList: document.getElementById("tokens-list"),
   sharesList: document.getElementById("shares-list"),
+  selectedTokenCard: document.getElementById("selected-token-card"),
+  clearSelectedToken: document.getElementById("clear-selected-token"),
   shareResolveOutput: document.getElementById("share-resolve-output"),
   agentPrompt: document.getElementById("agent-prompt"),
   claimShare: document.getElementById("claim-share"),
@@ -45,6 +53,9 @@ function saveSession(serverUrl, adminKey) {
 function clearSession() {
   localStorage.setItem(storageKeys.serverUrl, window.location.origin);
   localStorage.removeItem(storageKeys.adminKey);
+  state.tokens = [];
+  state.shares = [];
+  state.selectedTokenId = "";
   els.serverUrl.value = window.location.origin;
   els.adminKey.value = "";
   els.dashboard.classList.add("hidden");
@@ -73,14 +84,27 @@ function formatJSON(value) {
   return JSON.stringify(value, null, 2);
 }
 
-function renderRecordList(container, items, render) {
-  if (!items.length) {
-    container.className = "list-card empty-state";
-    container.textContent = "暂无数据。";
-    return;
-  }
-  container.className = "list-card";
-  container.innerHTML = items.map(render).join("");
+function describeScope(item) {
+  return item.project_scope ? `${item.scope} · ${item.project_scope}` : item.scope;
+}
+
+function activeTokens() {
+  return state.tokens.filter((item) => !item.revoked_at);
+}
+
+function activeShares() {
+  return state.shares.filter((item) => !item.revoked_at);
+}
+
+function selectedToken() {
+  return activeTokens().find((item) => item.token_id === state.selectedTokenId) || null;
+}
+
+function formatExpiry(expiresAt) {
+  if (!expiresAt) return "不过期";
+  const date = new Date(expiresAt);
+  if (Number.isNaN(date.getTime())) return expiresAt;
+  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function agentLinkForShare(serverUrl, share) {
@@ -118,6 +142,84 @@ function extractShareCode() {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
+function renderRecordList(container, items, render) {
+  if (!items.length) {
+    container.className = "list-card empty-state";
+    container.textContent = "暂无数据。";
+    return;
+  }
+  container.className = "list-card";
+  container.innerHTML = items.map(render).join("");
+}
+
+function syncTokenProjectScopeField() {
+  const field = els.tokenForm?.querySelector("[data-project-scope-field]");
+  const scope = els.tokenForm?.elements?.scope?.value;
+  if (!(field instanceof HTMLElement)) return;
+  field.classList.toggle("hidden", scope !== "project:demo");
+}
+
+function populateShareDefaults(token) {
+  if (!(els.shareForm instanceof HTMLFormElement)) return;
+  els.shareForm.elements.share_name.value = `${token.token_name}-share`;
+  els.shareForm.elements.share_expires_in.value = "24h";
+  els.shareForm.elements.max_claims.value = "1";
+}
+
+function renderSelectedToken() {
+  const token = selectedToken();
+  if (!token) {
+    els.selectedTokenCard.className = "selected-token empty-state";
+    els.selectedTokenCard.textContent = "先在左侧选择一个 token。选中后，这里会自动带出默认分享配置。";
+    els.shareForm.classList.add("hidden");
+    return;
+  }
+
+  els.selectedTokenCard.className = "selected-token";
+  els.selectedTokenCard.innerHTML = `
+    <div class="selected-token-name">${token.token_name}</div>
+    <div class="selected-token-meta">权限：${describeScope(token)}</div>
+    <div class="selected-token-meta">到期：${formatExpiry(token.expires_at)}</div>
+    <div class="selected-token-meta">接下来只需要改分享名称、有效期和 claim 次数。</div>
+  `;
+  els.shareForm.classList.remove("hidden");
+}
+
+function renderTokens() {
+  const tokens = [...activeTokens()].reverse();
+  renderRecordList(els.tokensList, tokens, (item) => `
+    <div class="record">
+      <div class="record-title">${item.token_name}</div>
+      <div class="record-meta">${describeScope(item)}</div>
+      <div class="record-meta">到期：${formatExpiry(item.expires_at)}</div>
+      <div class="record-meta">id: ${item.token_id}</div>
+      <div class="record-actions">
+        <button class="button button-secondary select-token-button ${state.selectedTokenId === item.token_id ? "is-selected" : ""}" data-id="${item.token_id}">
+          ${state.selectedTokenId === item.token_id ? "已选中" : "用它生成分享"}
+        </button>
+        <button class="button button-secondary revoke-button" data-kind="token" data-id="${item.token_id}">吊销 token</button>
+      </div>
+    </div>
+  `);
+}
+
+function renderShares() {
+  const shares = [...activeShares()].reverse();
+  renderRecordList(els.sharesList, shares, (item) => `
+    <div class="record">
+      <div class="record-title">${item.share_name}</div>
+      <div class="record-meta">来源 token: ${item.token_name}</div>
+      <div class="record-meta">${describeScope(item)}</div>
+      <div class="record-meta">claims: ${item.claim_count}/${item.max_claims}</div>
+      <div class="record-meta">到期：${formatExpiry(item.expires_at)}</div>
+      <div class="record-meta">链接只在创建成功时展示一次。</div>
+      <div class="record-actions">
+        <button class="button button-secondary revoke-button" data-kind="share" data-id="${item.share_id}">删除分享</button>
+      </div>
+    </div>
+  `);
+}
+
 async function revokeResource(kind, id) {
   const path = kind === "token" ? `/v1/admin/tokens/${id}/revoke` : `/v1/admin/share-links/${id}/revoke`;
   await apiRequest(path, {
@@ -126,6 +228,28 @@ async function revokeResource(kind, id) {
     adminKey: els.adminKey.value.trim(),
   });
   await refreshDashboard();
+}
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  throw new Error("当前浏览器不支持复制，请手动复制");
+}
+
+function renderShareOutput(serverUrl, result) {
+  const handoff = {
+    share_name: result.share_name,
+    agent_link: agentLinkForShare(serverUrl, result),
+    claim_url: result.claim_url,
+    scope: result.scope,
+    project_scope: result.project_scope || "",
+    max_claims: result.max_claims,
+    expires_at: result.expires_at || null,
+  };
+  els.shareOutput.className = "code-card";
+  els.shareOutput.textContent = formatJSON(handoff);
 }
 
 async function refreshDashboard() {
@@ -138,25 +262,20 @@ async function refreshDashboard() {
     adminKey,
   });
 
-  renderRecordList(els.tokensList, bootstrap.tokens, (item) => `
-    <div class="record">
-      <div class="record-title">${item.token_name}</div>
-      <div class="record-meta">${item.scope}${item.project_scope ? ` · ${item.project_scope}` : ""}</div>
-      <div class="record-meta">id: ${item.token_id}</div>
-      ${item.revoked_at ? `<div class="record-meta">已吊销</div>` : `<button class="button button-secondary revoke-button" data-kind="token" data-id="${item.token_id}">revoke</button>`}
-    </div>
-  `);
+  state.tokens = bootstrap.tokens;
+  state.shares = bootstrap.share_links;
 
-  renderRecordList(els.sharesList, bootstrap.share_links, (item) => `
-    <div class="record">
-      <div class="record-title">${item.share_name}</div>
-      <div class="record-meta">${item.scope}${item.project_scope ? ` · ${item.project_scope}` : ""}</div>
-      <div class="record-meta">claims: ${item.claim_count}/${item.max_claims}</div>
-      <div class="record-meta">token: ${item.token_name}</div>
-      ${item.revoked_at ? `<div class="record-meta">已吊销</div>` : `<button class="button button-secondary revoke-button" data-kind="share" data-id="${item.share_id}">revoke</button>`}
-    </div>
-  `);
+  if (!selectedToken()) {
+    const firstToken = [...activeTokens()].reverse()[0];
+    state.selectedTokenId = firstToken ? firstToken.token_id : "";
+    if (firstToken) {
+      populateShareDefaults(firstToken);
+    }
+  }
 
+  renderSelectedToken();
+  renderTokens();
+  renderShares();
   els.dashboard.classList.remove("hidden");
   setStatus(`已连接 ${bootstrap.server_url}`);
 }
@@ -182,25 +301,56 @@ els.refreshData?.addEventListener("click", async () => {
   }
 });
 
+els.clearSelectedToken?.addEventListener("click", () => {
+  state.selectedTokenId = "";
+  renderSelectedToken();
+  renderTokens();
+});
+
+els.tokenForm?.elements?.scope?.addEventListener("change", syncTokenProjectScopeField);
+
 document.addEventListener("click", async (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLElement) || !target.classList.contains("revoke-button")) {
+  if (!(target instanceof HTMLElement)) {
     return;
   }
-  try {
-    await revokeResource(target.dataset.kind, target.dataset.id);
-  } catch (error) {
-    setStatus(error.message, true);
+
+  if (target.classList.contains("select-token-button")) {
+    const token = activeTokens().find((item) => item.token_id === target.dataset.id);
+    if (!token) {
+      setStatus("token 不存在或已失效", true);
+      return;
+    }
+    state.selectedTokenId = token.token_id;
+    populateShareDefaults(token);
+    renderSelectedToken();
+    renderTokens();
+    els.shareOutput.className = "code-card empty-state";
+    els.shareOutput.textContent = "生成后会在这里给出可直接发给 agent 的链接。";
+    return;
+  }
+
+  if (target.classList.contains("revoke-button")) {
+    try {
+      await revokeResource(target.dataset.kind, target.dataset.id);
+      setStatus(target.dataset.kind === "share" ? "分享链接已删除。" : "token 已吊销。");
+    } catch (error) {
+      setStatus(error.message, true);
+    }
   }
 });
 
 els.tokenForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const scopeValue = formData.get("scope");
+  const form = event.currentTarget instanceof HTMLFormElement ? event.currentTarget : null;
+  if (!form) return;
+
+  const formData = new FormData(form);
+  const scopeValue = String(formData.get("scope") || "");
   const rawProjectScope = String(formData.get("project_scope") || "").trim();
-  const projectScope = scopeValue === "project:demo" ? rawProjectScope || "demo" : rawProjectScope;
-  const scope = scopeValue === "project:demo" ? `project:${projectScope}` : String(scopeValue);
+  const projectScope = scopeValue === "project:demo" ? rawProjectScope || "demo" : "";
+  const scope = scopeValue === "project:demo" ? `project:${projectScope}` : scopeValue;
+
   try {
     const payload = {
       name: String(formData.get("name") || "").trim(),
@@ -216,8 +366,16 @@ els.tokenForm?.addEventListener("submit", async (event) => {
     });
     els.tokenOutput.className = "code-card";
     els.tokenOutput.textContent = formatJSON(result);
-    event.currentTarget.reset();
+    form.reset();
+    syncTokenProjectScopeField();
+    state.selectedTokenId = result.token_id;
     await refreshDashboard();
+    const token = selectedToken();
+    if (token) {
+      populateShareDefaults(token);
+      renderSelectedToken();
+      renderTokens();
+    }
   } catch (error) {
     els.tokenOutput.className = "code-card";
     els.tokenOutput.textContent = error.message;
@@ -226,20 +384,22 @@ els.tokenForm?.addEventListener("submit", async (event) => {
 
 els.shareForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const scopeValue = formData.get("scope");
-  const rawProjectScope = String(formData.get("project_scope") || "").trim();
-  const projectScope = scopeValue === "project:demo" ? rawProjectScope || "demo" : rawProjectScope;
-  const scope = scopeValue === "project:demo" ? `project:${projectScope}` : String(scopeValue);
+  const form = event.currentTarget instanceof HTMLFormElement ? event.currentTarget : null;
+  const token = selectedToken();
+  if (!form || !token) {
+    els.shareOutput.className = "code-card";
+    els.shareOutput.textContent = "请先选择一个 token。";
+    return;
+  }
 
+  const formData = new FormData(form);
   try {
     const payload = {
       share_name: String(formData.get("share_name") || "").trim(),
-      token_name: String(formData.get("token_name") || "").trim(),
-      scope,
-      project_scope: projectScope,
+      token_name: token.token_name,
+      scope: token.scope,
+      project_scope: token.project_scope || "",
       share_expires_in: String(formData.get("share_expires_in") || "").trim(),
-      token_expires_in: String(formData.get("token_expires_in") || "").trim(),
       max_claims: Number(formData.get("max_claims") || 1),
     };
     const result = await apiRequest("/v1/admin/share-links", {
@@ -248,14 +408,9 @@ els.shareForm?.addEventListener("submit", async (event) => {
       adminKey: els.adminKey.value.trim(),
       body: payload,
     });
-    const handoff = {
-      ...result,
-      agent_link: agentLinkForShare(els.serverUrl.value.trim(), result),
-    };
-    els.shareOutput.className = "code-card";
-    els.shareOutput.textContent = formatJSON(handoff);
-    event.currentTarget.reset();
+    renderShareOutput(els.serverUrl.value.trim(), result);
     await refreshDashboard();
+    populateShareDefaults(token);
   } catch (error) {
     els.shareOutput.className = "code-card";
     els.shareOutput.textContent = error.message;
@@ -311,6 +466,8 @@ async function bootShareClaimView() {
 async function init() {
   const inShareMode = await bootShareClaimView();
   if (inShareMode) return;
+
+  syncTokenProjectScopeField();
 
   const session = loadSession();
   els.serverUrl.value = session.serverUrl || window.location.origin;

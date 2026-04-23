@@ -409,12 +409,11 @@ func (s *Store) RevokeShareLink(shareID string) (*types.RevokeShareLinkResponse,
 		if s.shares[i].ShareID != shareID {
 			continue
 		}
-		now := time.Now().UTC()
-		s.shares[i].RevokedAt = &now
+		s.shares = append(s.shares[:i], s.shares[i+1:]...)
 		if err := s.saveSharesLocked(); err != nil {
 			return nil, err
 		}
-		return &types.RevokeShareLinkResponse{ShareID: shareID, RevokedAt: &now}, nil
+		return &types.RevokeShareLinkResponse{ShareID: shareID}, nil
 	}
 	return nil, ErrInvalidShareLink
 }
