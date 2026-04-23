@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>deployctl</title>
+    <meta
+      name="description"
+      content="deployctl 是一个面向 agent 的部署控制面起步仓库，当前提供 token-only 认证底座、二进制下载、CLI 说明和 handoff 信息组织。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-left"></div>
+    <div class="ambient ambient-right"></div>
+
+    <header class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">deployctl · agent-first deployment control plane</div>
+        <h1>把 deploy 信息组织成 agent 能直接执行的前端入口。</h1>
+        <p class="lead">
+          当前版本已经提供 token-only 认证底座、`deployctl` / `deployd` 二进制、CLI
+          说明书，以及给服务器 agent 的 handoff 内容组织方式。
+        </p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/ckken/deployctl/releases/tag/v0.1.0" target="_blank" rel="noreferrer">下载二进制</a>
+          <a class="button button-secondary" href="#handoff">查看 Agent Handoff</a>
+        </div>
+      </div>
+      <aside class="hero-panel">
+        <div class="status-card">
+          <div class="status-label">公网地址状态</div>
+          <div class="status-value">未内置</div>
+          <p>
+            当前没有官方托管的公网 `deployd` 服务。你需要把 `deployd` 部署到自己的服务器，
+            然后把公网地址配置给 agent。
+          </p>
+        </div>
+        <div class="status-grid">
+          <div class="mini-card">
+            <span>CLI</span>
+            <strong>`deployctl`</strong>
+          </div>
+          <div class="mini-card">
+            <span>Server</span>
+            <strong>`deployd`</strong>
+          </div>
+          <div class="mini-card">
+            <span>Auth</span>
+            <strong>Token Only</strong>
+          </div>
+          <div class="mini-card">
+            <span>Release</span>
+            <strong>v0.1.0</strong>
+          </div>
+        </div>
+      </aside>
+    </header>
+
+    <main class="page">
+      <section class="section">
+        <div class="section-head">
+          <span class="section-tag">What It Solves</span>
+          <h2>官网先把你最关心的三个问题讲清楚。</h2>
+        </div>
+        <div class="card-grid three-up">
+          <article class="feature-card">
+            <h3>有没有公网地址</h3>
+            <p>现在没有内置公网服务。`deployd` 是你自部署的服务端，公网地址由你的服务器决定。</p>
+          </article>
+          <article class="feature-card">
+            <h3>CLI 怎么用</h3>
+            <p>前端把下载、启动、token 设置、`doctor`、`whoami` 组织成一条清晰路径，不需要再翻 README。</p>
+          </article>
+          <article class="feature-card">
+            <h3>怎么把信息交给 agent</h3>
+            <p>通过统一的 handoff 区块，把服务地址、token 状态、目标动作和推荐命令组织成可复制内容。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <span class="section-tag">Binary Release</span>
+          <h2>给服务器 agent 直接下的二进制。</h2>
+        </div>
+        <div class="download-list">
+          <article class="download-card">
+            <div>
+              <h3>Linux AMD64</h3>
+              <p>适合大多数 x86_64 Linux 服务器。</p>
+            </div>
+            <a href="https://github.com/ckken/deployctl/releases/download/v0.1.0/deployctl_linux_amd64.tar.gz" target="_blank" rel="noreferrer">下载</a>
+          </article>
+          <article class="download-card">
+            <div>
+              <h3>Linux ARM64</h3>
+              <p>适合 ARM 服务器与部分云主机。</p>
+            </div>
+            <a href="https://github.com/ckken/deployctl/releases/download/v0.1.0/deployctl_linux_arm64.tar.gz" target="_blank" rel="noreferrer">下载</a>
+          </article>
+          <article class="download-card">
+            <div>
+              <h3>macOS ARM64</h3>
+              <p>适合本地开发机验证。</p>
+            </div>
+            <a href="https://github.com/ckken/deployctl/releases/download/v0.1.0/deployctl_darwin_arm64.tar.gz" target="_blank" rel="noreferrer">下载</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <span class="section-tag">CLI Manual</span>
+          <h2>CLI 说明书，不需要跳文档。</h2>
+        </div>
+        <div class="manual-grid">
+          <article class="manual-card">
+            <h3>1. 启动 deployd</h3>
+            <pre><code>deployd serve \
+  --listen :7319 \
+  --data-dir ./.deployctl-data \
+  --admin-secret dev-secret</code></pre>
+          </article>
+          <article class="manual-card">
+            <h3>2. 创建 token</h3>
+            <pre><code>deployd admin create-token \
+  --data-dir ./.deployctl-data \
+  --admin-secret dev-secret \
+  --name ci-bot \
+  --scope read-only</code></pre>
+          </article>
+          <article class="manual-card">
+            <h3>3. 写入本地配置</h3>
+            <pre><code>deployctl auth token set &lt;token&gt;</code></pre>
+          </article>
+          <article class="manual-card">
+            <h3>4. 检查健康度</h3>
+            <pre><code>deployctl --json doctor</code></pre>
+          </article>
+          <article class="manual-card">
+            <h3>5. 查看当前身份</h3>
+            <pre><code>deployctl --json auth whoami</code></pre>
+          </article>
+          <article class="manual-card">
+            <h3>Token 来源优先级</h3>
+            <pre><code>1. --token
+2. DEPLOYCTL_TOKEN
+3. ~/.deployctl/config.toml</code></pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="handoff">
+        <div class="section-head">
+          <span class="section-tag">Agent Handoff</span>
+          <h2>把这些内容直接交给服务器 agent。</h2>
+        </div>
+        <div class="handoff-layout">
+          <article class="handoff-card">
+            <div class="handoff-title-row">
+              <h3>推荐 handoff 文本</h3>
+              <button class="copy-button" data-copy-target="handoff-prompt">复制</button>
+            </div>
+            <textarea id="handoff-prompt" readonly>你现在负责在服务器上接管 deployctl 部署控制面。
+
+已知信息：
+- 项目：deployctl
+- 认证模型：token only
+- 官方内置公网 deploy 服务：没有
+- 你需要部署的是自托管 deployd
+- 部署完成后，需要给出公网地址，例如 https://deploy.example.com
+
+执行目标：
+1. 安装 deployctl 和 deployd 二进制
+2. 启动 deployd
+3. 创建一个可用 token
+4. 用 deployctl 配置 token
+5. 运行 deployctl --json doctor
+6. 运行 deployctl --json auth whoami
+7. 返回以下信息：
+   - deployd 的公网地址
+   - doctor 的 JSON 输出
+   - whoami 的 JSON 输出
+   - 当前 token scope
+
+建议命令：
+- deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret <secret>
+- deployd admin create-token --data-dir ./.deployctl-data --admin-secret <secret> --name ci-bot --scope read-only
+- deployctl auth token set &lt;token&gt;
+- deployctl --json doctor
+- deployctl --json auth whoami</textarea>
+          </article>
+
+          <article class="handoff-card">
+            <div class="handoff-title-row">
+              <h3>推荐机器态 JSON</h3>
+              <button class="copy-button" data-copy-target="handoff-json">复制</button>
+            </div>
+            <pre id="handoff-json"><code>{
+  "project": "deployctl",
+  "service": "deployd",
+  "public_service_builtin": false,
+  "release_url": "https://github.com/ckken/deployctl/releases/tag/v0.1.0",
+  "binary_assets": {
+    "linux_amd64": "https://github.com/ckken/deployctl/releases/download/v0.1.0/deployctl_linux_amd64.tar.gz",
+    "linux_arm64": "https://github.com/ckken/deployctl/releases/download/v0.1.0/deployctl_linux_arm64.tar.gz"
+  },
+  "required_outputs": [
+    "public_base_url",
+    "doctor_json",
+    "whoami_json",
+    "token_scope"
+  ],
+  "recommended_commands": [
+    "deployctl --json doctor",
+    "deployctl --json auth whoami"
+  ]
+}</code></pre>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div>
+        <strong>deployctl</strong>
+        <span>Token-only auth foundation for agent-driven deployment workflows.</span>
+      </div>
+      <a href="https://github.com/ckken/deployctl" target="_blank" rel="noreferrer">GitHub 仓库</a>
+    </footer>
+
+    <script src="./site.js"></script>
+  </body>
+</html>
