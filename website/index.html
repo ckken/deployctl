@@ -49,7 +49,7 @@
             <div class="section-tag">Dashboard</div>
             <h1>把 token 管理和 agent 分享，压缩成一个 dashboard。</h1>
             <p>
-              先连上 deployd，再从已有 token 直接生成分享链接。不给用户塞多余字段，也不把旧链接当永久资产保留。
+              先连上 deployd，再从已有 token 直接复制分享链接。不给用户塞多余字段，也不把旧链接当永久资产保留。
             </p>
           </div>
           <div class="topbar-meta">
@@ -130,35 +130,23 @@
               <article class="panel panel-share-builder">
                 <div class="panel-head">
                   <div>
-                    <div class="panel-label">Share Builder</div>
-                    <h3>从已有 token 生成分享</h3>
+                    <div class="panel-label">Quick Share</div>
+                    <h3>一键复制分享链接</h3>
                   </div>
                 </div>
 
                 <div id="selected-token-card" class="selected-token empty-state">
-                  先在左侧选择一个 token。选中后，这里会自动带出默认分享配置。
+                  先在左侧点任意一个 token 的“复制分享链接”。系统会用默认策略自动生成短链并复制到剪贴板。
                 </div>
 
-                <form id="share-form" class="stack hidden">
-                  <label class="wide-field">
-                    <span>分享名称</span>
-                    <input name="share_name" placeholder="例如：给前端团队的只读访问" required />
-                  </label>
-                  <div class="form-split">
-                    <label>
-                      <span>分享过期时间</span>
-                      <input name="share_expires_in" placeholder="例如 7d" value="24h" />
-                    </label>
-                    <label>
-                      <span>最大领取次数</span>
-                      <input name="max_claims" type="number" min="1" value="1" />
-                    </label>
-                  </div>
-                  <div class="actions">
-                    <button type="submit" class="button button-primary button-wide">生成分享链接</button>
-                    <button id="clear-selected-token" type="button" class="button button-secondary">取消选择</button>
-                  </div>
-                </form>
+                <div id="share-actions" class="actions hidden">
+                  <button id="copy-selected-share" type="button" class="button button-primary button-wide">复制分享链接</button>
+                  <button id="clear-selected-token" type="button" class="button button-secondary">取消选择</button>
+                </div>
+
+                <div class="quick-share-note">
+                  默认策略：7 天有效、1 次领取、自动继承当前 token 权限。
+                </div>
 
                 <div id="share-output" class="code-card empty-state">生成后会在这里给出可直接发给 agent 的链接。</div>
               </article>

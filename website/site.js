@@ -9,6 +9,11 @@ const state = {
   selectedTokenId: "",
 };
 
+const quickShareDefaults = {
+  expiresIn: "7d",
+  maxClaims: 1,
+};
+
 const els = {
   connectForm: document.getElementById("connect-form"),
   serverUrl: document.getElementById("server-url"),
@@ -18,13 +23,14 @@ const els = {
   dashboard: document.getElementById("dashboard"),
   shareClaim: document.getElementById("share-claim"),
   tokenForm: document.getElementById("token-form"),
-  shareForm: document.getElementById("share-form"),
   tokenOutput: document.getElementById("token-output"),
   shareOutput: document.getElementById("share-output"),
   refreshData: document.getElementById("refresh-data"),
   tokensList: document.getElementById("tokens-list"),
   sharesList: document.getElementById("shares-list"),
   selectedTokenCard: document.getElementById("selected-token-card"),
+  shareActions: document.getElementById("share-actions"),
+  copySelectedShare: document.getElementById("copy-selected-share"),
   clearSelectedToken: document.getElementById("clear-selected-token"),
   shareResolveOutput: document.getElementById("share-resolve-output"),
   agentPrompt: document.getElementById("agent-prompt"),
@@ -119,6 +125,10 @@ function scopeLabel(item) {
   return "只读";
 }
 
+function buildQuickShareName(token) {
+  return `${token.token_name} 分享`;
+}
+
 function agentLinkForShare(serverUrl, share) {
   return share.share_url || new URL(`/s/${share.share_code}`, serverUrl).toString();
 }
@@ -171,19 +181,12 @@ function syncTokenProjectScopeField() {
   field.classList.toggle("hidden", scope !== "project:demo");
 }
 
-function populateShareDefaults(token) {
-  if (!(els.shareForm instanceof HTMLFormElement)) return;
-  els.shareForm.elements.share_name.value = `${token.token_name}-share`;
-  els.shareForm.elements.share_expires_in.value = "24h";
-  els.shareForm.elements.max_claims.value = "1";
-}
-
 function renderSelectedToken() {
   const token = selectedToken();
   if (!token) {
     els.selectedTokenCard.className = "selected-token empty-state";
-    els.selectedTokenCard.textContent = "先在左侧选择一个 token。选中后，这里会自动带出默认分享配置。";
-    els.shareForm.classList.add("hidden");
+    els.selectedTokenCard.textContent = "先在左侧点任意一个 token 的“复制分享链接”。系统会用默认策略自动生成短链并复制到剪贴板。";
+    els.shareActions.classList.add("hidden");
     return;
   }
 
@@ -192,9 +195,9 @@ function renderSelectedToken() {
     <div class="selected-token-name">${token.token_name}</div>
     <div class="selected-token-meta">权限：${describeScope(token)}</div>
     <div class="selected-token-meta">到期：${formatExpiry(token.expires_at)}</div>
-    <div class="selected-token-meta">接下来只需要改分享名称、有效期和 claim 次数。</div>
+    <div class="selected-token-meta">默认复制策略：${quickShareDefaults.expiresIn} 有效 · ${quickShareDefaults.maxClaims} 次领取 · 自动继承当前权限。</div>
   `;
-  els.shareForm.classList.remove("hidden");
+  els.shareActions.classList.remove("hidden");
 }
 
 function renderTokens() {
@@ -216,9 +219,7 @@ function renderTokens() {
           <div class="record-meta">到期：${formatExpiry(item.expires_at)}</div>
           <div class="record-meta">id: ${item.token_id}</div>
           <div class="record-actions">
-            <button class="button button-secondary select-token-button ${state.selectedTokenId === item.token_id ? "is-selected" : ""}" data-id="${item.token_id}">
-              ${state.selectedTokenId === item.token_id ? "已选中" : "用它生成分享"}
-            </button>
+            <button class="button button-primary quick-share-button" data-id="${item.token_id}">复制分享链接</button>
             <button class="button button-secondary revoke-button" data-kind="token" data-id="${item.token_id}">撤销 Token</button>
           </div>
         </div>
@@ -249,6 +250,38 @@ function renderShares() {
   `);
 }
 
+async function createQuickShare(token, shouldCopy = true) {
+  const payload = {
+    share_name: buildQuickShareName(token),
+    token_name: token.token_name,
+    scope: token.scope,
+    project_scope: token.project_scope || "",
+    share_expires_in: quickShareDefaults.expiresIn,
+    max_claims: quickShareDefaults.maxClaims,
+  };
+
+  const result = await apiRequest("/v1/admin/share-links", {
+    method: "POST",
+    serverUrl: els.serverUrl.value.trim(),
+    adminKey: els.adminKey.value.trim(),
+    body: payload,
+  });
+
+  const link = agentLinkForShare(els.serverUrl.value.trim(), result);
+  let copied = false;
+  if (shouldCopy) {
+    try {
+      await copyText(link);
+      copied = true;
+    } catch (error) {
+      setStatus(error.message, true);
+    }
+  }
+  renderShareOutput(result, copied);
+  await refreshDashboard();
+  return result;
+}
+
 async function revokeResource(kind, id) {
   const path = kind === "token" ? `/v1/admin/tokens/${id}/revoke` : `/v1/admin/share-links/${id}/revoke`;
   await apiRequest(path, {
@@ -267,18 +300,14 @@ async function copyText(value) {
   throw new Error("当前浏览器不支持复制，请手动复制");
 }
 
-function renderShareOutput(serverUrl, result) {
-  const handoff = {
-    share_name: result.share_name,
-    agent_link: agentLinkForShare(serverUrl, result),
-    claim_url: result.claim_url,
-    scope: result.scope,
-    project_scope: result.project_scope || "",
-    max_claims: result.max_claims,
-    expires_at: result.expires_at || null,
-  };
-  els.shareOutput.className = "code-card";
-  els.shareOutput.textContent = formatJSON(handoff);
+function renderShareOutput(result, copied = false) {
+  const link = agentLinkForShare(els.serverUrl.value.trim(), result);
+  els.shareOutput.className = "code-card link-output-card";
+  els.shareOutput.innerHTML = `
+    <div class="link-output-title">${copied ? "分享链接已复制" : "分享链接已生成"}</div>
+    <a class="link-output-anchor" href="${link}" target="_blank" rel="noreferrer">${link}</a>
+    <div class="link-output-meta">默认策略：${quickShareDefaults.expiresIn} · ${quickShareDefaults.maxClaims} 次领取 · ${result.scope}</div>
+  `;
 }
 
 async function refreshDashboard() {
@@ -297,9 +326,6 @@ async function refreshDashboard() {
   if (!selectedToken()) {
     const firstToken = [...activeTokens()].reverse()[0];
     state.selectedTokenId = firstToken ? firstToken.token_id : "";
-    if (firstToken) {
-      populateShareDefaults(firstToken);
-    }
   }
 
   renderSelectedToken();
@@ -334,9 +360,27 @@ els.clearSelectedToken?.addEventListener("click", () => {
   state.selectedTokenId = "";
   renderSelectedToken();
   renderTokens();
+  els.shareOutput.className = "code-card empty-state";
+  els.shareOutput.textContent = "生成后会在这里给出可直接发给 agent 的链接。";
 });
 
 els.tokenForm?.elements?.scope?.addEventListener("change", syncTokenProjectScopeField);
+
+els.copySelectedShare?.addEventListener("click", async () => {
+  const token = selectedToken();
+  if (!token) {
+    els.shareOutput.className = "code-card empty-state";
+    els.shareOutput.textContent = "请先选择一个 token。";
+    return;
+  }
+  try {
+    await createQuickShare(token, true);
+    setStatus("分享链接已复制。");
+  } catch (error) {
+    els.shareOutput.className = "code-card";
+    els.shareOutput.textContent = error.message;
+  }
+});
 
 document.addEventListener("click", async (event) => {
   const target = event.target;
@@ -344,18 +388,22 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  if (target.classList.contains("select-token-button")) {
+  if (target.classList.contains("quick-share-button")) {
     const token = activeTokens().find((item) => item.token_id === target.dataset.id);
     if (!token) {
       setStatus("token 不存在或已失效", true);
       return;
     }
     state.selectedTokenId = token.token_id;
-    populateShareDefaults(token);
     renderSelectedToken();
     renderTokens();
-    els.shareOutput.className = "code-card empty-state";
-    els.shareOutput.textContent = "生成后会在这里给出可直接发给 agent 的链接。";
+    try {
+      await createQuickShare(token, true);
+      setStatus("分享链接已复制。");
+    } catch (error) {
+      els.shareOutput.className = "code-card";
+      els.shareOutput.textContent = error.message;
+    }
     return;
   }
 
@@ -399,50 +447,11 @@ els.tokenForm?.addEventListener("submit", async (event) => {
     syncTokenProjectScopeField();
     state.selectedTokenId = result.token_id;
     await refreshDashboard();
-    const token = selectedToken();
-    if (token) {
-      populateShareDefaults(token);
-      renderSelectedToken();
-      renderTokens();
-    }
+    renderSelectedToken();
+    renderTokens();
   } catch (error) {
     els.tokenOutput.className = "code-card";
     els.tokenOutput.textContent = error.message;
-  }
-});
-
-els.shareForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget instanceof HTMLFormElement ? event.currentTarget : null;
-  const token = selectedToken();
-  if (!form || !token) {
-    els.shareOutput.className = "code-card";
-    els.shareOutput.textContent = "请先选择一个 token。";
-    return;
-  }
-
-  const formData = new FormData(form);
-  try {
-    const payload = {
-      share_name: String(formData.get("share_name") || "").trim(),
-      token_name: token.token_name,
-      scope: token.scope,
-      project_scope: token.project_scope || "",
-      share_expires_in: String(formData.get("share_expires_in") || "").trim(),
-      max_claims: Number(formData.get("max_claims") || 1),
-    };
-    const result = await apiRequest("/v1/admin/share-links", {
-      method: "POST",
-      serverUrl: els.serverUrl.value.trim(),
-      adminKey: els.adminKey.value.trim(),
-      body: payload,
-    });
-    renderShareOutput(els.serverUrl.value.trim(), result);
-    await refreshDashboard();
-    populateShareDefaults(token);
-  } catch (error) {
-    els.shareOutput.className = "code-card";
-    els.shareOutput.textContent = error.message;
   }
 });
 

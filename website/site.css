@@ -488,6 +488,17 @@ textarea:focus {
   color: rgba(244, 235, 221, 0.8);
 }
 
+.quick-share-note {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.share-actions {
+  margin-top: 14px;
+}
+
 .form-split {
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
@@ -504,6 +515,31 @@ textarea:focus {
   line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.link-output-card {
+  display: grid;
+  gap: 10px;
+}
+
+.link-output-title {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.link-output-anchor {
+  color: #ffe5c9;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.link-output-anchor:hover {
+  text-decoration: underline;
+}
+
+.link-output-meta {
+  color: rgba(255, 229, 201, 0.72);
+  font-size: 12px;
 }
 
 .record {
@@ -601,6 +637,10 @@ textarea:focus {
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 14px;
+}
+
+.quick-share-button {
+  min-width: 148px;
 }
 
 .button.is-selected {
