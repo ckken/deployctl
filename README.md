@@ -25,14 +25,22 @@
 
 - `website/index.html`
 
-当前对外站点：
+公开说明页：
 
 - `https://ckken.github.io/deployctl/`
+
+真正的管理首页应由 `deployd` 同源托管在你的部署域名上，例如：
+
+- `https://q.empjs.dev/`
+
+完整服务器部署方案见：
+
+- `docs/deploy-q-empjs-dev.md`
 
 使用方式：
 
 1. 先部署 `deployd`
-2. 打开首页管理台
+2. 打开部署域名上的首页管理台
 3. 输入 deployd 的服务域名和 `adminKey`
 4. 创建 share link
 5. 把生成的 agent link 发给 agent
