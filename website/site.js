@@ -15,23 +15,22 @@ const quickShareDefaults = {
 };
 
 const els = {
+  unlockSection: document.getElementById("unlock-section"),
   connectForm: document.getElementById("connect-form"),
   serverUrl: document.getElementById("server-url"),
   adminKey: document.getElementById("admin-key"),
   connectStatus: document.getElementById("connect-status"),
   clearSession: document.getElementById("clear-session"),
+  manageSession: document.getElementById("manage-session"),
   dashboard: document.getElementById("dashboard"),
   shareClaim: document.getElementById("share-claim"),
   tokenForm: document.getElementById("token-form"),
   tokenOutput: document.getElementById("token-output"),
   shareOutput: document.getElementById("share-output"),
+  createDefaultToken: document.getElementById("create-default-token"),
   refreshData: document.getElementById("refresh-data"),
   tokensList: document.getElementById("tokens-list"),
   sharesList: document.getElementById("shares-list"),
-  selectedTokenCard: document.getElementById("selected-token-card"),
-  shareActions: document.getElementById("share-actions"),
-  copySelectedShare: document.getElementById("copy-selected-share"),
-  clearSelectedToken: document.getElementById("clear-selected-token"),
   shareResolveOutput: document.getElementById("share-resolve-output"),
   agentPrompt: document.getElementById("agent-prompt"),
   claimShare: document.getElementById("claim-share"),
@@ -65,6 +64,8 @@ function clearSession() {
   els.serverUrl.value = window.location.origin;
   els.adminKey.value = "";
   els.dashboard.classList.add("hidden");
+  els.unlockSection.classList.remove("hidden");
+  els.manageSession.classList.add("hidden");
   setStatus("已清空本地凭据。");
 }
 
@@ -129,6 +130,10 @@ function buildQuickShareName(token) {
   return `${token.token_name} 分享`;
 }
 
+function buildDefaultTokenName() {
+  return `quick-share-${Date.now().toString(36).slice(-6)}`;
+}
+
 function agentLinkForShare(serverUrl, share) {
   return share.share_url || new URL(`/s/${share.share_code}`, serverUrl).toString();
 }
@@ -181,25 +186,6 @@ function syncTokenProjectScopeField() {
   field.classList.toggle("hidden", scope !== "project:demo");
 }
 
-function renderSelectedToken() {
-  const token = selectedToken();
-  if (!token) {
-    els.selectedTokenCard.className = "selected-token empty-state";
-    els.selectedTokenCard.textContent = "先在左侧点任意一个 token 的“复制分享链接”。系统会用默认策略自动生成短链并复制到剪贴板。";
-    els.shareActions.classList.add("hidden");
-    return;
-  }
-
-  els.selectedTokenCard.className = "selected-token";
-  els.selectedTokenCard.innerHTML = `
-    <div class="selected-token-name">${token.token_name}</div>
-    <div class="selected-token-meta">权限：${describeScope(token)}</div>
-    <div class="selected-token-meta">到期：${formatExpiry(token.expires_at)}</div>
-    <div class="selected-token-meta">默认复制策略：${quickShareDefaults.expiresIn} 有效 · ${quickShareDefaults.maxClaims} 次领取 · 自动继承当前权限。</div>
-  `;
-  els.shareActions.classList.remove("hidden");
-}
-
 function renderTokens() {
   const tokens = [...activeTokens()].reverse();
   renderRecordList(els.tokensList, tokens, (item) => `
@@ -248,6 +234,15 @@ function renderShares() {
       </div>
     </div>
   `);
+}
+
+async function createToken(payload) {
+  return apiRequest("/v1/admin/tokens", {
+    method: "POST",
+    serverUrl: els.serverUrl.value.trim(),
+    adminKey: els.adminKey.value.trim(),
+    body: payload,
+  });
 }
 
 async function createQuickShare(token, shouldCopy = true) {
@@ -328,10 +323,11 @@ async function refreshDashboard() {
     state.selectedTokenId = firstToken ? firstToken.token_id : "";
   }
 
-  renderSelectedToken();
   renderTokens();
   renderShares();
+  els.unlockSection.classList.add("hidden");
   els.dashboard.classList.remove("hidden");
+  els.manageSession.classList.remove("hidden");
   setStatus(`已连接 ${bootstrap.server_url}`);
 }
 
@@ -357,29 +353,31 @@ els.refreshData?.addEventListener("click", async () => {
   }
 });
 
-els.clearSelectedToken?.addEventListener("click", () => {
-  state.selectedTokenId = "";
-  renderSelectedToken();
-  renderTokens();
-  els.shareOutput.className = "code-card empty-state";
-  els.shareOutput.textContent = "生成后会在这里给出可直接发给 agent 的链接。";
+els.manageSession?.addEventListener("click", () => {
+  els.unlockSection.classList.remove("hidden");
+  els.dashboard.classList.add("hidden");
+  els.manageSession.classList.add("hidden");
+  els.adminKey.focus();
 });
 
 els.tokenForm?.elements?.scope?.addEventListener("change", syncTokenProjectScopeField);
 
-els.copySelectedShare?.addEventListener("click", async () => {
-  const token = selectedToken();
-  if (!token) {
-    els.shareOutput.className = "code-card empty-state";
-    els.shareOutput.textContent = "请先选择一个 token。";
-    return;
-  }
+els.createDefaultToken?.addEventListener("click", async () => {
   try {
-    await createQuickShare(token, true);
-    setStatus("分享链接已复制。");
+    const result = await createToken({
+      name: buildDefaultTokenName(),
+      scope: "read-only",
+      project_scope: "",
+      expires_in: "",
+    });
+    els.tokenOutput.className = "code-card";
+    els.tokenOutput.textContent = formatJSON(result);
+    state.selectedTokenId = result.token_id;
+    await refreshDashboard();
+    setStatus("默认 token 已创建。");
   } catch (error) {
-    els.shareOutput.className = "code-card";
-    els.shareOutput.textContent = error.message;
+    els.tokenOutput.className = "code-card";
+    els.tokenOutput.textContent = error.message;
   }
 });
 
@@ -396,7 +394,6 @@ document.addEventListener("click", async (event) => {
       return;
     }
     state.selectedTokenId = token.token_id;
-    renderSelectedToken();
     renderTokens();
     try {
       await createQuickShare(token, true);
@@ -448,7 +445,6 @@ els.tokenForm?.addEventListener("submit", async (event) => {
     syncTokenProjectScopeField();
     state.selectedTokenId = result.token_id;
     await refreshDashboard();
-    renderSelectedToken();
     renderTokens();
   } catch (error) {
     els.tokenOutput.className = "code-card";
@@ -514,9 +510,12 @@ async function init() {
     try {
       await refreshDashboard();
     } catch (error) {
+      els.unlockSection.classList.remove("hidden");
       setStatus(error.message, true);
     }
+    return;
   }
+  els.unlockSection.classList.remove("hidden");
 }
 
 init();

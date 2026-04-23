@@ -47,22 +47,23 @@
         <header class="workspace-topbar">
           <div class="topbar-copy">
             <div class="section-tag">Dashboard</div>
-            <h1>把 token 管理和 agent 分享，压缩成一个 dashboard。</h1>
+            <h1>选一个 token，点复制，直接给 agent。</h1>
             <p>
-              先连上 deployd，再从已有 token 直接复制分享链接。不给用户塞多余字段，也不把旧链接当永久资产保留。
+              主路径不再有分享录入。解锁后直接进入 dashboard，点 token 上的 `复制分享链接` 就能生成短链并发给 agent。
             </p>
           </div>
           <div class="topbar-meta">
             <div class="meta-pill">你好，Admin</div>
             <div class="meta-pill">同域托管</div>
+            <button id="manage-session" type="button" class="button button-secondary hidden">更换 adminKey</button>
           </div>
         </header>
 
-        <section class="connect-strip section">
+        <section class="connect-strip section hidden" id="unlock-section">
           <div class="panel panel-connect">
             <div class="panel-intro">
               <div class="panel-label">服务器连接</div>
-              <h2>所有操作都基于当前 deployd。</h2>
+              <h2>先解锁当前 deployd。</h2>
             </div>
             <form id="connect-form" class="connect-form">
               <input id="server-url" name="server_url" type="hidden" />
@@ -85,19 +86,22 @@
               <div class="panel-head">
                 <div>
                   <div class="panel-label">Token</div>
-                  <h3>现有 token</h3>
+                  <h3>点击复制分享即可用</h3>
                 </div>
-                <button id="refresh-data" class="button button-secondary" type="button">刷新</button>
+                <div class="actions">
+                  <button id="create-default-token" class="button button-secondary" type="button">一键创建默认 token</button>
+                  <button id="refresh-data" class="button button-secondary" type="button">刷新</button>
+                </div>
               </div>
               <div id="tokens-list" class="list-card empty-state">暂无数据。</div>
 
               <div class="token-create-block">
                 <div class="subhead">
-                  <div class="subhead-title">创建新 token</div>
-                  <div class="subhead-copy">只在必要时新增。常见场景优先复用现有 token 再生成分享。</div>
+                  <div class="subhead-title">高级创建</div>
+                  <div class="subhead-copy">只有默认 token 不够用时，再展开自定义。</div>
                 </div>
                 <details class="create-token-details">
-                  <summary>需要时再展开创建</summary>
+                  <summary>展开自定义 token</summary>
                   <form id="token-form" class="stack token-form-compact">
                     <label class="wide-field">
                       <span>token 名称</span>
@@ -130,22 +134,13 @@
               <article class="panel panel-share-builder">
                 <div class="panel-head">
                   <div>
-                    <div class="panel-label">Quick Share</div>
-                    <h3>一键复制分享链接</h3>
+                    <div class="panel-label">Latest Share</div>
+                    <h3>刚刚复制的链接</h3>
                   </div>
                 </div>
 
-                <div id="selected-token-card" class="selected-token empty-state">
-                  先在左侧点任意一个 token 的“复制分享链接”。系统会用默认策略自动生成短链并复制到剪贴板。
-                </div>
-
-                <div id="share-actions" class="actions hidden">
-                  <button id="copy-selected-share" type="button" class="button button-primary button-wide">复制分享链接</button>
-                  <button id="clear-selected-token" type="button" class="button button-secondary">取消选择</button>
-                </div>
-
                 <div class="quick-share-note">
-                  默认策略：7 天有效、1 次领取、自动继承当前 token 权限。
+                  默认策略固定为：7 天有效、1 次领取、自动继承当前 token 权限。
                 </div>
 
                 <div id="share-output" class="code-card empty-state">生成后会在这里给出可直接发给 agent 的链接。</div>
