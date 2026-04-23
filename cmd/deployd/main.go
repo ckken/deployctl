@@ -19,13 +19,17 @@ import (
 const defaultDataDir = ".deployctl-data"
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `deployd - token-only auth server
+	fmt.Fprintf(os.Stderr, `deployd - upload grant server
 
 Usage:
   deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret secret --web-dir ./website
   deployd admin create-token --data-dir ./.deployctl-data --admin-secret secret --name ci-bot --scope read-only
   deployd admin list-tokens --data-dir ./.deployctl-data --admin-secret secret
   deployd admin revoke-token --data-dir ./.deployctl-data --admin-secret secret --token-id tok_xxx
+
+  deployd admin create-upload-link --data-dir ./.deployctl-data --admin-secret secret --base-url https://q.empjs.dev [--folder releases/demo] [--expires-in 24h]
+  deployd admin list-upload-links --data-dir ./.deployctl-data --admin-secret secret
+  deployd admin delete-upload-link --data-dir ./.deployctl-data --admin-secret secret --grant-id grt_xxx
 `)
 }
 
@@ -70,7 +74,7 @@ func runServe(args []string) error {
 	return srv.ListenAndServe()
 }
 
-func runAdminCreate(args []string) error {
+func runAdminCreateToken(args []string) error {
 	fs := flag.NewFlagSet("create-token", flag.ExitOnError)
 	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
 	adminSecret := fs.String("admin-secret", "", "admin secret")
@@ -95,7 +99,7 @@ func runAdminCreate(args []string) error {
 	return nil
 }
 
-func runAdminList(args []string) error {
+func runAdminListTokens(args []string) error {
 	fs := flag.NewFlagSet("list-tokens", flag.ExitOnError)
 	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
 	adminSecret := fs.String("admin-secret", "", "admin secret")
@@ -111,7 +115,7 @@ func runAdminList(args []string) error {
 	return nil
 }
 
-func runAdminRevoke(args []string) error {
+func runAdminRevokeToken(args []string) error {
 	fs := flag.NewFlagSet("revoke-token", flag.ExitOnError)
 	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
 	adminSecret := fs.String("admin-secret", "", "admin secret")
@@ -124,6 +128,67 @@ func runAdminRevoke(args []string) error {
 
 	store := mustStore(*dataDir)
 	resp, err := store.RevokeToken(*tokenID)
+	if err != nil {
+		return err
+	}
+	printJSON(resp)
+	return nil
+}
+
+func runAdminCreateUploadLink(args []string) error {
+	fs := flag.NewFlagSet("create-upload-link", flag.ExitOnError)
+	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
+	adminSecret := fs.String("admin-secret", "", "admin secret")
+	baseURL := fs.String("base-url", "http://127.0.0.1:7319", "public base URL")
+	folder := fs.String("folder", "", "relative folder")
+	expiresIn := fs.String("expires-in", "24h", "expiry duration")
+	maxFiles := fs.Int("max-files", 1, "max files for this link")
+	fs.Parse(args)
+	requireAdminSecret(*adminSecret)
+
+	store := mustStore(*dataDir)
+	resp, err := store.CreateUploadGrant(types.CreateUploadGrantRequest{
+		Folder:    *folder,
+		ExpiresIn: *expiresIn,
+		MaxFiles:  *maxFiles,
+	}, *baseURL)
+	if err != nil {
+		return err
+	}
+	printJSON(resp)
+	return nil
+}
+
+func runAdminListUploadLinks(args []string) error {
+	fs := flag.NewFlagSet("list-upload-links", flag.ExitOnError)
+	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
+	adminSecret := fs.String("admin-secret", "", "admin secret")
+	baseURL := fs.String("base-url", "http://127.0.0.1:7319", "public base URL")
+	fs.Parse(args)
+	requireAdminSecret(*adminSecret)
+
+	store := mustStore(*dataDir)
+	resp, err := store.ListUploadGrants(*baseURL)
+	if err != nil {
+		return err
+	}
+	printJSON(resp)
+	return nil
+}
+
+func runAdminDeleteUploadLink(args []string) error {
+	fs := flag.NewFlagSet("delete-upload-link", flag.ExitOnError)
+	dataDir := fs.String("data-dir", defaultDataDir, "data directory")
+	adminSecret := fs.String("admin-secret", "", "admin secret")
+	grantID := fs.String("grant-id", "", "grant id")
+	fs.Parse(args)
+	requireAdminSecret(*adminSecret)
+	if *grantID == "" {
+		return errors.New("grant-id is required")
+	}
+
+	store := mustStore(*dataDir)
+	resp, err := store.DeleteUploadGrant(*grantID)
 	if err != nil {
 		return err
 	}
@@ -149,11 +214,17 @@ func main() {
 		}
 		switch os.Args[2] {
 		case "create-token":
-			err = runAdminCreate(os.Args[3:])
+			err = runAdminCreateToken(os.Args[3:])
 		case "list-tokens":
-			err = runAdminList(os.Args[3:])
+			err = runAdminListTokens(os.Args[3:])
 		case "revoke-token":
-			err = runAdminRevoke(os.Args[3:])
+			err = runAdminRevokeToken(os.Args[3:])
+		case "create-upload-link":
+			err = runAdminCreateUploadLink(os.Args[3:])
+		case "list-upload-links":
+			err = runAdminListUploadLinks(os.Args[3:])
+		case "delete-upload-link":
+			err = runAdminDeleteUploadLink(os.Args[3:])
 		default:
 			usage()
 			os.Exit(2)

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -79,105 +80,102 @@ func TestValidateTokenExpiredAndRevoked(t *testing.T) {
 	}
 }
 
-func TestLoadPersistsTokens(t *testing.T) {
+func TestCreateUploadGrantUsesDefaults(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
 	if err := store.Load(); err != nil {
 		t.Fatal(err)
 	}
-	resp, err := store.CreateToken(context.Background(), types.CreateTokenRequest{
-		Name:  "persisted",
-		Scope: "admin",
-	})
+
+	resp, err := store.CreateUploadGrant(types.CreateUploadGrantRequest{}, "https://deploy.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.HasPrefix(resp.Folder, "uploads/") {
+		t.Fatalf("expected default folder, got %s", resp.Folder)
+	}
+	if resp.MaxFiles != 1 {
+		t.Fatalf("expected default max_files=1, got %d", resp.MaxFiles)
+	}
+	if !strings.HasPrefix(resp.UploadURL, "https://deploy.example.com/u/upc_") {
+		t.Fatalf("unexpected upload url: %s", resp.UploadURL)
+	}
 
-	store2 := NewStore(dir)
-	if err := store2.Load(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store2.ValidateToken(resp.Token); err != nil {
-		t.Fatalf("expected token to survive reload from %s: %v", filepath.Join(dir, "tokens.json"), err)
-	}
 }
 
-func TestShareLinkResolveAndClaim(t *testing.T) {
+func TestUploadGrantInspectUploadAndLimit(t *testing.T) {
 	store := NewStore(t.TempDir())
 	if err := store.Load(); err != nil {
 		t.Fatal(err)
 	}
 
-	shareResp, err := store.CreateShareLink(types.CreateShareLinkRequest{
-		ShareName:      "agent access",
-		TokenName:      "agent-bot",
-		Scope:          "project:demo",
-		ProjectScope:   "demo",
-		ShareExpiresIn: "1h",
-		TokenExpiresIn: "24h",
-		MaxClaims:      1,
+	grantResp, err := store.CreateUploadGrant(types.CreateUploadGrantRequest{
+		Folder:    "releases/demo",
+		ExpiresIn: "1h",
+		MaxFiles:  1,
 	}, "https://deploy.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	resolveResp, err := store.ResolveShareLink("", shareResp.ShareCode, "https://deploy.example.com")
+	info, err := store.InspectUploadGrant(grantResp.GrantCode, "https://deploy.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resolveResp.Valid || resolveResp.ServerURL != "https://deploy.example.com" {
-		t.Fatalf("unexpected resolve response: %+v", resolveResp)
+	if !info.Valid || info.Folder != "releases/demo" {
+		t.Fatalf("unexpected info response: %+v", info)
 	}
 
-	claimResp, err := store.ClaimShareLink(types.ClaimShareLinkRequest{
-		ShareID: shareResp.ShareID,
-		Code:    shareResp.ShareCode,
-	}, "https://deploy.example.com")
+	uploadResp, err := store.SaveUploadedFile(grantResp.GrantCode, "build.zip", "application/zip", bytes.NewBufferString("payload"), "https://deploy.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claimResp.Token == "" || claimResp.Scope != "project:demo" || claimResp.ProjectScope != "demo" {
-		t.Fatalf("unexpected claim response: %+v", claimResp)
+	if uploadResp.FileURL == "" || !strings.HasPrefix(uploadResp.SavedPath, "releases/demo/") {
+		t.Fatalf("unexpected upload response: %+v", uploadResp)
 	}
-	if _, err := store.ValidateToken(claimResp.Token); err != nil {
-		t.Fatalf("expected claimed token to validate: %v", err)
+	absoluteFile := filepath.Join(store.UploadRootDir(), filepath.FromSlash(uploadResp.SavedPath))
+	if _, err := os.Stat(absoluteFile); err != nil {
+		t.Fatalf("expected uploaded file to exist: %v", err)
 	}
-	if _, err := store.ClaimShareLink(types.ClaimShareLinkRequest{
-		Code: shareResp.ShareCode,
-	}, "https://deploy.example.com"); err != ErrClaimLimitReached {
-		t.Fatalf("expected claim limit error, got %v", err)
+
+	latest, err := store.LatestUploadForGrant(grantResp.GrantCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.UploadID != uploadResp.UploadID {
+		t.Fatalf("expected latest upload %s, got %s", uploadResp.UploadID, latest.UploadID)
+	}
+
+	if _, err := store.SaveUploadedFile(grantResp.GrantCode, "again.zip", "application/zip", bytes.NewBufferString("payload"), "https://deploy.example.com"); err != ErrUploadLimitReached {
+		t.Fatalf("expected limit error, got %v", err)
 	}
 }
 
-func TestRevokeShareLinkDeletesRecord(t *testing.T) {
+func TestDeleteUploadGrantRemovesRecord(t *testing.T) {
 	store := NewStore(t.TempDir())
 	if err := store.Load(); err != nil {
 		t.Fatal(err)
 	}
 
-	shareResp, err := store.CreateShareLink(types.CreateShareLinkRequest{
-		ShareName:    "agent access",
-		TokenName:    "agent-bot",
-		Scope:        "read-only",
-		MaxClaims:    1,
+	grantResp, err := store.CreateUploadGrant(types.CreateUploadGrantRequest{
+		Folder: "handoff/demo",
 	}, "https://deploy.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := store.RevokeShareLink(shareResp.ShareID); err != nil {
+	if _, err := store.DeleteUploadGrant(grantResp.GrantID); err != nil {
 		t.Fatal(err)
 	}
 
-	shares, err := store.ListShareLinks()
+	records, err := store.ListUploadGrants("https://deploy.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(shares) != 0 {
-		t.Fatalf("expected share link to be removed, got %d records", len(shares))
+	if len(records) != 0 {
+		t.Fatalf("expected upload grant to be deleted, got %d", len(records))
 	}
-
-	if _, err := store.ResolveShareLink("", shareResp.ShareCode, "https://deploy.example.com"); err != ErrInvalidShareLink {
-		t.Fatalf("expected invalid share link after delete, got %v", err)
+	if _, err := store.InspectUploadGrant(grantResp.GrantCode, "https://deploy.example.com"); err != ErrInvalidUploadGrant {
+		t.Fatalf("expected invalid upload grant after delete, got %v", err)
 	}
 }

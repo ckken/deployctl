@@ -1,133 +1,129 @@
 # deployctl
 
-`deployctl` 是一个面向 agent / CI 的 token-only 部署控制面起步仓库。当前版本已经包含一版“首页管理台 + share link 接管流”：
+`deployctl` 现在的主目标是一个最小可用的上传授权服务。
 
-- `deployd`：本地 token 服务端
-- `deployctl`：本地 CLI
-- token 创建、吊销、校验、`whoami`
-- 管理员通过 `adminKey` 创建 share link
-- agent 通过 share link 领取自己的 token
-- CLI `doctor` 与本地 token 配置
+你先把 `deployd` 部署到自己的域名上，例如 `https://q.empjs.dev`。  
+管理侧 agent 用 `adminKey` 生成一条上传链接，再把这条链接发给另一个 agent；对方 agent 直接按 URL 上传文件，不需要再领 token，也不需要再录入目录和时间。
 
-首版不包含用户名密码、登录会话、refresh token，也不包含真正的上传部署逻辑。
+当前版本是 `0.3.x` 基线，核心能力只有三件事：
 
-## 首页管理台
+- 管理员生成上传链接
+- 目标 agent 通过上传链接直接传文件
+- 服务记录文件地址、保存目录和上传时间
 
-仓库内置了一个静态首页管理台，用来集中处理：
+## 主流程
 
-- deployd 服务域名输入
-- adminKey 管理
-- 用户 token 创建
-- share link 生成
-- 给 agent 的接管链接
+1. 启动 `deployd`
+2. 管理 agent 生成上传链接
+3. 把返回的 URL 发给目标 agent
+4. 目标 agent 上传文件
+5. 服务返回 `file_url` 和 `saved_path`
 
-入口文件：
+## 命令行
 
-- `website/index.html`
-
-公开说明页：
-
-- `https://ckken.github.io/deployctl/`
-
-真正的管理首页应由 `deployd` 同源托管在你的部署域名上，例如：
-
-- `https://q.empjs.dev/`
-
-完整服务器部署方案见：
-
-- `docs/deploy-q-empjs-dev.md`
-
-使用方式：
-
-1. 先部署 `deployd`
-2. 打开部署域名上的首页管理台
-3. 输入 deployd 的服务域名和 `adminKey`
-4. 先创建或选择一个已有 token
-5. 直接点击 `复制分享链接`
-6. 把生成的 agent link 发给 agent
-7. agent 打开链接后领取 token，再继续调用 deployd API
-
-## GitHub 二进制
-
-发布页会提供以下二进制压缩包：
-
-- `deployctl_linux_amd64.tar.gz`
-- `deployctl_linux_arm64.tar.gz`
-- `deployctl_darwin_arm64.tar.gz`
-
-每个压缩包都包含：
-
-- `deployctl`
-- `deployd`
-- `website/`
-
-服务器侧可以直接下载并解压，例如：
+生成上传链接：
 
 ```bash
-curl -L -o deployctl_linux_amd64.tar.gz <release-asset-url>
-tar -xzf deployctl_linux_amd64.tar.gz
-chmod +x deployctl-linux-amd64 deployd-linux-amd64
-mv deployctl-linux-amd64 /usr/local/bin/deployctl
-mv deployd-linux-amd64 /usr/local/bin/deployd
+deployctl --json --server https://q.empjs.dev upload-link create \
+  --admin-key '<adminKey>' \
+  --folder releases/demo \
+  --expires-in 24h
 ```
 
-如果需要保留原始二进制名，可以自行重命名：
+返回结果示例：
+
+```json
+{
+  "grant_id": "grt_123",
+  "grant_code": "upc_456",
+  "upload_url": "https://q.empjs.dev/u/upc_456",
+  "folder": "releases/demo",
+  "max_files": 1,
+  "created_at": "2026-04-24T12:00:00Z",
+  "expires_at": "2026-04-25T12:00:00Z",
+  "upload_path": "/releases/demo"
+}
+```
+
+查看上传链接状态：
 
 ```bash
-mv deployctl-linux-amd64 deployctl
-mv deployd-linux-amd64 deployd
+deployctl --json upload --url https://q.empjs.dev/u/upc_456
 ```
 
-启动时记得把首页目录一起挂进去：
+上传文件：
 
 ```bash
-deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret <secret> --web-dir ./website
+deployctl --json upload \
+  --url https://q.empjs.dev/u/upc_456 \
+  --file ./build.zip
 ```
+
+也可以直接用 `curl`：
+
+```bash
+curl -F file=@./build.zip https://q.empjs.dev/u/upc_456
+```
+
+## 默认值
+
+- `folder`: `uploads/YYYY/MM/DD`
+- `expires_in`: `24h`
+- `max_files`: `1`
+
+你也可以在创建上传链接时显式指定：
+
+- `--folder releases/demo`
+- `--expires-in 72h`
+- `--max-files 3`
+
+## 仍然保留的基础能力
+
+历史上的 token-only 认证底座还在，方便后续继续扩展：
+
+- `deployctl --json doctor`
+- `deployctl --json auth whoami`
+- `deployctl auth token set <token>`
+- `deployd admin create-token`
+
+但它们不再是上传主流程。
 
 ## 本地运行
 
 启动服务端：
 
 ```bash
-go run ./cmd/deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret dev-secret
-```
-
-创建 token：
-
-```bash
-go run ./cmd/deployd admin create-token \
+go run ./cmd/deployd serve \
+  --listen :7319 \
   --data-dir ./.deployctl-data \
   --admin-secret dev-secret \
-  --name ci-bot \
-  --scope read-only
+  --web-dir ./website
 ```
 
-设置 CLI token：
+创建上传链接：
 
 ```bash
-go run ./cmd/deployctl auth token set <token>
+go run ./cmd/deployctl --json --server http://127.0.0.1:7319 upload-link create \
+  --admin-key dev-secret
 ```
 
-检查状态：
+## 首页
 
-```bash
-go run ./cmd/deployctl --json doctor
-go run ./cmd/deployctl --json auth whoami
-```
+首页现在只是一个最小后台，默认同源托管在 `deployd` 所在域名：
 
-## Token 来源优先级
+- 只录入 `adminKey`
+- 一键生成并复制上传链接
+- 高级参数折叠，不挡主路径
+- 展示最近上传链接和最近上传结果
 
-1. `--token`
-2. `DEPLOYCTL_TOKEN`
-3. `~/.deployctl/config.toml`
+相关文件：
 
-## HTTP API
+- `website/index.html`
+- `website/site.css`
+- `website/site.js`
 
-- `GET /v1/health`
-- `GET /v1/auth/whoami`
-- `POST /v1/admin/tokens`
-- `GET /v1/admin/tokens`
-- `POST /v1/admin/tokens/{token_id}/revoke`
+## 服务器部署
 
-`/v1/auth/whoami` 使用 `Authorization: Bearer <token>`。  
-`/v1/admin/*` 使用 `X-Admin-Secret: <secret>`。
+`q.empjs.dev` 的部署说明见：
+
+- `docs/deploy-q-empjs-dev.md`

@@ -1,197 +1,84 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>deployctl Admin</title>
-    <meta
-      name="description"
-      content="deployctl 管理首页。输入 deployd 服务域名和 adminKey，先管理 token，再把分享链接发给 agent 自助接管。"
-    />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@500;700;900&display=swap"
-      rel="stylesheet"
-    />
+    <title>deployctl 0.3</title>
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
-    <div class="canvas-noise"></div>
-    <div class="canvas-blur blur-a"></div>
-    <div class="canvas-blur blur-b"></div>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">deployctl 0.3</p>
+        <h1>生成上传链接，发给 agent，直接传文件。</h1>
+        <p class="hero-copy">
+          服务部署在当前域名下。管理侧只需要一个 <code>adminKey</code>，默认就能生成 24 小时、单文件的上传链接；需要时再展开高级参数指定目录和时间。
+        </p>
+      </section>
 
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand-lockup">
-          <div class="brand-eyebrow">deployctl</div>
-          <div class="brand-title">Admin</div>
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>上传授权</h2>
+            <p>当前服务域名：<span id="server-origin"></span></p>
+          </div>
+          <button id="clear-admin-key" class="ghost-button" type="button">清空 adminKey</button>
         </div>
 
-        <nav class="sidebar-nav">
-          <button class="nav-item is-active" type="button">首页概览</button>
-          <button class="nav-item" type="button">Token 管理</button>
-          <button class="nav-item" type="button">分享链接</button>
-          <button class="nav-item" type="button">使用日志</button>
-          <button class="nav-item" type="button">系统设置</button>
-        </nav>
+        <form id="grant-form" class="stack">
+          <label class="field">
+            <span>adminKey</span>
+            <input id="admin-key" name="adminKey" type="password" placeholder="输入一次后会保存在本地" autocomplete="off" required />
+          </label>
 
-        <div class="sidebar-footer">
-          <div class="footer-badge">企业版</div>
-          <div class="footer-title">把 agent 接管链路收成一个域名</div>
-          <div class="footer-copy">首页管理、token 选择、短链接分享，都在同一张面板里完成。</div>
-        </div>
-      </aside>
-
-      <main class="workspace">
-        <header class="workspace-topbar">
-          <div class="topbar-copy">
-            <div class="section-tag">Dashboard</div>
-            <h1>选一个 token，点复制，直接给 agent。</h1>
-            <p>
-              主路径不再有分享录入。解锁后直接进入 dashboard，点 token 上的 `复制分享链接` 就能生成短链并发给 agent。
-            </p>
-          </div>
-          <div class="topbar-meta">
-            <div class="meta-pill">你好，Admin</div>
-            <div class="meta-pill">同域托管</div>
-            <button id="manage-session" type="button" class="button button-secondary hidden">更换 adminKey</button>
-          </div>
-        </header>
-
-        <section class="connect-strip section hidden" id="unlock-section">
-          <div class="panel panel-connect">
-            <div class="panel-intro">
-              <div class="panel-label">服务器连接</div>
-              <h2>先解锁当前 deployd。</h2>
-            </div>
-            <form id="connect-form" class="connect-form">
-              <input id="server-url" name="server_url" type="hidden" />
-              <label>
-                <span>AdminKey</span>
-                <input id="admin-key" name="admin_key" type="password" placeholder="输入 admin secret" required />
+          <details class="advanced">
+            <summary>高级参数</summary>
+            <div class="advanced-grid">
+              <label class="field">
+                <span>folder</span>
+                <input id="folder" name="folder" type="text" placeholder="默认 uploads/YYYY/MM/DD" />
               </label>
-              <div class="connect-actions">
-                <div id="connect-status" class="status-note">尚未连接。</div>
-                <button type="submit" class="button button-primary">连接管理台</button>
-                <button type="button" id="clear-session" class="button button-secondary">清空</button>
-              </div>
-            </form>
-          </div>
-        </section>
-
-        <section class="section hidden" id="dashboard">
-          <div class="dashboard-grid">
-            <article class="panel panel-tokens">
-              <div class="panel-head">
-                <div>
-                  <div class="panel-label">Token</div>
-                  <h3>点击复制分享即可用</h3>
-                </div>
-                <div class="actions">
-                  <button id="create-default-token" class="button button-secondary" type="button">一键创建默认 token</button>
-                  <button id="refresh-data" class="button button-secondary" type="button">刷新</button>
-                </div>
-              </div>
-              <div id="tokens-list" class="list-card empty-state">暂无数据。</div>
-
-              <div class="token-create-block">
-                <div class="subhead">
-                  <div class="subhead-title">高级创建</div>
-                  <div class="subhead-copy">只有默认 token 不够用时，再展开自定义。</div>
-                </div>
-                <details class="create-token-details">
-                  <summary>展开自定义 token</summary>
-                  <form id="token-form" class="stack token-form-compact">
-                    <label class="wide-field">
-                      <span>token 名称</span>
-                      <input name="name" placeholder="prod-agent-token" required />
-                    </label>
-                    <label>
-                      <span>scope</span>
-                      <select name="scope" required>
-                        <option value="read-only">read-only</option>
-                        <option value="project:demo">project:&lt;slug&gt;</option>
-                        <option value="admin">admin</option>
-                      </select>
-                    </label>
-                    <label data-project-scope-field>
-                      <span>project_scope</span>
-                      <input name="project_scope" placeholder="仅 project scope 时填写" />
-                    </label>
-                    <label>
-                      <span>expires_in</span>
-                      <input name="expires_in" placeholder="例如 24h，可留空" />
-                    </label>
-                    <button type="submit" class="button button-primary">创建 token</button>
-                  </form>
-                  <div id="token-output" class="code-card empty-state">创建后会在这里显示一次性 token。</div>
-                </details>
-              </div>
-            </article>
-
-            <div class="right-rail">
-              <article class="panel panel-share-builder">
-                <div class="panel-head">
-                  <div>
-                    <div class="panel-label">Latest Share</div>
-                    <h3>刚刚复制的链接</h3>
-                  </div>
-                </div>
-
-                <div class="quick-share-note">
-                  默认策略固定为：7 天有效、1 次领取、自动继承当前 token 权限。
-                </div>
-
-                <div id="share-output" class="code-card empty-state">生成后会在这里给出可直接发给 agent 的链接。</div>
-              </article>
-
-              <article class="panel panel-shares">
-                <div class="panel-head">
-                  <div>
-                    <div class="panel-label">Share Links</div>
-                    <h3>现有分享链接</h3>
-                  </div>
-                </div>
-                <div id="shares-list" class="list-card empty-state">暂无数据。</div>
-              </article>
+              <label class="field">
+                <span>expires_in</span>
+                <input id="expires-in" name="expiresIn" type="text" value="24h" />
+              </label>
+              <label class="field">
+                <span>max_files</span>
+                <input id="max-files" name="maxFiles" type="number" min="1" value="1" />
+              </label>
             </div>
+          </details>
+
+          <div class="actions">
+            <button id="generate-link" class="primary-button" type="submit">生成并复制上传链接</button>
+            <button id="refresh-data" class="secondary-button" type="button">刷新</button>
           </div>
-        </section>
+        </form>
 
-        <section class="section hidden" id="share-claim">
-          <div class="panel claim-panel">
-            <div class="section-tag">Agent Handoff</div>
-            <h2>这个短链接已经带上了服务域名和接管凭证。</h2>
-            <div class="claim-grid">
-              <article class="claim-card">
-                <div class="panel-head">
-                  <h3>分享链接状态</h3>
-                </div>
-                <div id="share-resolve-output" class="code-card">正在解析分享链接…</div>
-                <div class="actions">
-                  <button id="claim-share" class="button button-primary" type="button">领取 agent token</button>
-                </div>
-              </article>
+        <p id="status" class="status">输入 adminKey 后即可生成上传链接。</p>
+      </section>
 
-              <article class="claim-card">
-                <div class="panel-head">
-                  <h3>给 agent 的可执行信息</h3>
-                </div>
-                <textarea id="agent-prompt" readonly class="prompt-box"></textarea>
-              </article>
-            </div>
-
-            <article class="claim-card claim-result">
-              <div class="panel-head">
-                <h3>claim 结果</h3>
-              </div>
-              <div id="claim-output" class="code-card empty-state">点击“领取 agent token”后，会在这里显示 server_url 与 token。</div>
-            </article>
+      <section class="panel result-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>最近生成的链接</h2>
+            <p>删除后立即失效，不保留旧地址。</p>
           </div>
-        </section>
-      </main>
-    </div>
+        </div>
+        <div id="latest-link" class="empty">还没有生成上传链接。</div>
+        <div id="links-list" class="list"></div>
+      </section>
+
+      <section class="panel result-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>最近上传结果</h2>
+            <p>上传完成后会在这里看到文件地址和保存目录。</p>
+          </div>
+        </div>
+        <div id="uploads-list" class="list empty">还没有上传记录。</div>
+      </section>
+    </main>
 
     <script src="./site.js"></script>
   </body>

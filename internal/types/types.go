@@ -23,35 +23,50 @@ type TokenSummary struct {
 	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
 }
 
-type ShareLinkRecord struct {
-	ShareID        string     `json:"share_id"`
-	ShareName      string     `json:"share_name"`
-	ShareCodeHash  string     `json:"share_code_hash"`
-	Scope          string     `json:"scope"`
-	ProjectScope   string     `json:"project_scope,omitempty"`
-	TokenName      string     `json:"token_name"`
-	TokenExpiresIn string     `json:"token_expires_in,omitempty"`
-	MaxClaims      int        `json:"max_claims"`
-	ClaimCount     int        `json:"claim_count"`
-	CreatedAt      time.Time  `json:"created_at"`
-	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	RevokedAt      *time.Time `json:"revoked_at,omitempty"`
-	ClaimedAt      *time.Time `json:"claimed_at,omitempty"`
+type UploadGrantRecord struct {
+	GrantID       string     `json:"grant_id"`
+	GrantCode     string     `json:"grant_code"`
+	GrantCodeHash string     `json:"grant_code_hash"`
+	Folder        string     `json:"folder"`
+	MaxFiles      int        `json:"max_files"`
+	UploadCount   int        `json:"upload_count"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 }
 
-type ShareLinkSummary struct {
-	ShareID        string     `json:"share_id"`
-	ShareName      string     `json:"share_name"`
-	Scope          string     `json:"scope"`
-	ProjectScope   string     `json:"project_scope,omitempty"`
-	TokenName      string     `json:"token_name"`
-	TokenExpiresIn string     `json:"token_expires_in,omitempty"`
-	MaxClaims      int        `json:"max_claims"`
-	ClaimCount     int        `json:"claim_count"`
+type UploadGrantSummary struct {
+	GrantID        string     `json:"grant_id"`
+	UploadURL      string     `json:"upload_url"`
+	Folder         string     `json:"folder"`
+	MaxFiles       int        `json:"max_files"`
+	UploadCount    int        `json:"upload_count"`
+	RemainingFiles int        `json:"remaining_files"`
 	CreatedAt      time.Time  `json:"created_at"`
 	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	RevokedAt      *time.Time `json:"revoked_at,omitempty"`
-	ClaimedAt      *time.Time `json:"claimed_at,omitempty"`
+}
+
+type UploadRecord struct {
+	UploadID          string    `json:"upload_id"`
+	GrantID           string    `json:"grant_id"`
+	OriginalFileName  string    `json:"original_file_name"`
+	StoredFileName    string    `json:"stored_file_name"`
+	SavedPath         string    `json:"saved_path"`
+	FileURL           string    `json:"file_url"`
+	ContentType       string    `json:"content_type,omitempty"`
+	SizeBytes         int64     `json:"size_bytes"`
+	UploadedAt        time.Time `json:"uploaded_at"`
+	UploadGrantFolder string    `json:"upload_grant_folder"`
+}
+
+type UploadSummary struct {
+	UploadID         string    `json:"upload_id"`
+	GrantID          string    `json:"grant_id"`
+	OriginalFileName string    `json:"original_file_name"`
+	SavedPath        string    `json:"saved_path"`
+	FileURL          string    `json:"file_url"`
+	SizeBytes        int64     `json:"size_bytes"`
+	UploadedAt       time.Time `json:"uploaded_at"`
+	Folder           string    `json:"folder"`
 }
 
 type ErrorResponse struct {
@@ -92,69 +107,53 @@ type RevokeTokenResponse struct {
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
 
-type CreateShareLinkRequest struct {
-	ShareName      string `json:"share_name"`
-	TokenName      string `json:"token_name"`
-	Scope          string `json:"scope"`
-	ProjectScope   string `json:"project_scope,omitempty"`
-	ShareExpiresIn string `json:"share_expires_in,omitempty"`
-	TokenExpiresIn string `json:"token_expires_in,omitempty"`
-	MaxClaims      int    `json:"max_claims,omitempty"`
+type CreateUploadGrantRequest struct {
+	Folder    string `json:"folder,omitempty"`
+	ExpiresIn string `json:"expires_in,omitempty"`
+	MaxFiles  int    `json:"max_files,omitempty"`
 }
 
-type CreateShareLinkResponse struct {
-	ShareID        string     `json:"share_id"`
-	ShareCode      string     `json:"share_code"`
-	ShareName      string     `json:"share_name"`
-	TokenName      string     `json:"token_name"`
-	Scope          string     `json:"scope"`
-	ProjectScope   string     `json:"project_scope,omitempty"`
-	TokenExpiresIn string     `json:"token_expires_in,omitempty"`
-	MaxClaims      int        `json:"max_claims"`
+type CreateUploadGrantResponse struct {
+	GrantID    string     `json:"grant_id"`
+	GrantCode  string     `json:"grant_code"`
+	UploadURL  string     `json:"upload_url"`
+	Folder     string     `json:"folder"`
+	MaxFiles   int        `json:"max_files"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	UploadPath string     `json:"upload_path"`
+}
+
+type DeleteUploadGrantResponse struct {
+	GrantID string `json:"grant_id"`
+}
+
+type UploadGrantInfoResponse struct {
+	UploadURL      string     `json:"upload_url"`
+	Folder         string     `json:"folder"`
+	MaxFiles       int        `json:"max_files"`
+	UploadCount    int        `json:"upload_count"`
+	RemainingFiles int        `json:"remaining_files"`
+	CreatedAt      time.Time  `json:"created_at"`
 	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	ShareURL       string     `json:"share_url"`
-	ResolveURL     string     `json:"resolve_url"`
-	ClaimURL       string     `json:"claim_url"`
+	Valid          bool       `json:"valid"`
 }
 
-type RevokeShareLinkResponse struct {
-	ShareID   string     `json:"share_id"`
-	RevokedAt *time.Time `json:"revoked_at,omitempty"`
-}
-
-type ResolveShareLinkResponse struct {
-	ShareID      string     `json:"share_id"`
-	ShareName    string     `json:"share_name"`
-	TokenName    string     `json:"token_name"`
-	Scope        string     `json:"scope"`
-	ProjectScope string     `json:"project_scope,omitempty"`
-	ServerURL    string     `json:"server_url"`
-	ClaimURL     string     `json:"claim_url"`
-	Valid        bool       `json:"valid"`
-	MaxClaims    int        `json:"max_claims"`
-	ClaimCount   int        `json:"claim_count"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
-}
-
-type ClaimShareLinkRequest struct {
-	ShareID string `json:"share_id"`
-	Code    string `json:"code"`
-}
-
-type ClaimShareLinkResponse struct {
-	ServerURL    string     `json:"server_url"`
-	Token        string     `json:"token"`
-	TokenID      string     `json:"token_id"`
-	TokenName    string     `json:"token_name"`
-	Scope        string     `json:"scope"`
-	ProjectScope string     `json:"project_scope,omitempty"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+type UploadFileResponse struct {
+	UploadID         string    `json:"upload_id"`
+	GrantID          string    `json:"grant_id"`
+	OriginalFileName string    `json:"original_file_name"`
+	SavedPath        string    `json:"saved_path"`
+	FileURL          string    `json:"file_url"`
+	SizeBytes        int64     `json:"size_bytes"`
+	UploadedAt       time.Time `json:"uploaded_at"`
+	Folder           string    `json:"folder"`
 }
 
 type AdminBootstrapResponse struct {
-	ServerURL  string             `json:"server_url"`
-	Tokens     []TokenSummary     `json:"tokens"`
-	ShareLinks []ShareLinkSummary `json:"share_links"`
+	ServerURL   string               `json:"server_url"`
+	UploadLinks []UploadGrantSummary `json:"upload_links"`
+	Uploads     []UploadSummary      `json:"uploads"`
 }
 
 type DoctorResponse struct {

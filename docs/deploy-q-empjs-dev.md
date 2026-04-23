@@ -1,29 +1,24 @@
 # `q.empjs.dev` 部署说明
 
-这份文档是给服务器 agent 直接执行的部署方案。目标是把：
+这份文档对应 `0.3.x` 的最小上传授权流程。
 
-- 首页管理台挂到 `https://q.empjs.dev/`
-- share link 挂到 `https://q.empjs.dev/s/<share_code>`
-- API 走同一个域名下的 `/v1/...`
+目标结果：
 
-## 目标结果
-
-部署完成后应满足：
-
-- `https://q.empjs.dev/` 打开就是管理首页
-- `https://q.empjs.dev/v1/health` 返回 `200`
-- 创建出来的分享地址格式是 `https://q.empjs.dev/s/<share_code>`
+- 首页管理入口：`https://q.empjs.dev/`
+- 健康检查：`https://q.empjs.dev/v1/health`
+- 上传链接：`https://q.empjs.dev/u/<grant_code>`
+- 文件访问：`https://q.empjs.dev/files/...`
 
 ## 1. 下载二进制
 
-以 `v0.2.2` 为例，Linux x86_64 服务器执行：
+以 `v0.3.0` 为例，Linux x86_64：
 
 ```bash
 mkdir -p /opt/deployctl
 cd /opt/deployctl
 
 curl -L -o deployctl_linux_amd64.tar.gz \
-  https://github.com/ckken/deployctl/releases/download/v0.2.2/deployctl_linux_amd64.tar.gz
+  https://github.com/ckken/deployctl/releases/download/v0.3.0/deployctl_linux_amd64.tar.gz
 
 tar -xzf deployctl_linux_amd64.tar.gz
 mv deployctl-linux-amd64 deployctl
@@ -32,15 +27,15 @@ chmod +x deployctl deployd
 mkdir -p data
 ```
 
-解压后目录里应该至少有：
+解压后应该至少有：
 
-- `./deployctl`
-- `./deployd`
-- `./website/`
+- `/opt/deployctl/deployctl`
+- `/opt/deployctl/deployd`
+- `/opt/deployctl/website/`
 
 ## 2. 启动 `deployd`
 
-先直接前台验证一遍：
+先前台验证：
 
 ```bash
 cd /opt/deployctl
@@ -52,11 +47,21 @@ cd /opt/deployctl
   --web-dir /opt/deployctl/website
 ```
 
-如果服务正常启动，保留这个进程，另开一个终端继续做反代验证。
+验证：
 
-## 3. 配置 Nginx 反代
+```bash
+curl http://127.0.0.1:7319/v1/health
+curl -I http://127.0.0.1:7319/
+```
 
-在服务器上写入：
+预期：
+
+- `/v1/health` 返回 `{"status":"ok"}`
+- 首页返回 `200`
+
+## 3. 反代到 `q.empjs.dev`
+
+Nginx 示例：
 
 ```nginx
 server {
@@ -74,39 +79,18 @@ server {
 }
 ```
 
-例如保存到：
-
-- `/etc/nginx/conf.d/q.empjs.dev.conf`
-
-然后执行：
+然后：
 
 ```bash
 nginx -t
 systemctl reload nginx
 ```
 
-如果你的 TLS 终止层不是 Nginx，而是 Cloudflare Tunnel、Caddy 或网关层，也一样要保证最终把 `q.empjs.dev` 转发到 `127.0.0.1:7319`。
+如果是 Cloudflare、Tunnel、Caddy 或其他入口层，也一样：最终把 `q.empjs.dev` 指到 `127.0.0.1:7319`。
 
-## 4. 验证首页与 API
+## 4. systemd 常驻
 
-在服务器上执行：
-
-```bash
-curl -I http://127.0.0.1:7319/
-curl -I http://127.0.0.1:7319/v1/health
-curl -I https://q.empjs.dev/
-curl -I https://q.empjs.dev/v1/health
-```
-
-预期：
-
-- 本机 `127.0.0.1:7319` 返回 `200`
-- 域名 `https://q.empjs.dev/` 返回 `200`
-- 不是 Cloudflare 的 `404 page not found`
-
-## 5. 配置成 systemd 常驻
-
-确认前台运行没问题后，再改成 systemd：
+`/etc/systemd/system/deployd.service`
 
 ```ini
 [Unit]
@@ -125,11 +109,7 @@ User=root
 WantedBy=multi-user.target
 ```
 
-例如保存到：
-
-- `/etc/systemd/system/deployd.service`
-
-然后执行：
+执行：
 
 ```bash
 systemctl daemon-reload
@@ -137,53 +117,77 @@ systemctl enable --now deployd
 systemctl status deployd --no-pager
 ```
 
-## 6. 首页使用方式
+## 5. 生成上传链接
 
-部署完成后：
+命令行：
 
-1. 打开 `https://q.empjs.dev/`
-2. 输入 `adminKey`
-3. 创建用户 token 或 share link
-4. 把 share link 发给 agent
-
-最终发给 agent 的链接格式应该是：
-
-```text
-https://q.empjs.dev/s/<share_code>
+```bash
+/opt/deployctl/deployctl --json --server https://q.empjs.dev upload-link create \
+  --admin-key '<你的adminKey>' \
+  --folder releases/demo \
+  --expires-in 24h
 ```
 
-不是：
+返回结果里最重要的是：
+
+- `upload_url`
+- `folder`
+- `expires_at`
+
+例如：
 
 ```text
-https://q.empjs.dev/?share=...&code=...
+https://q.empjs.dev/u/upc_xxx
 ```
 
-## 7. 常见错误
+把这条链接发给目标 agent 即可。
 
-### 只看到 Cloudflare 404
+## 6. 目标 agent 上传文件
 
-说明 `q.empjs.dev` 还没有正确反代到 `deployd`，不是前端没更新。
+`deployctl` 方式：
 
-优先检查：
+```bash
+deployctl --json upload \
+  --url https://q.empjs.dev/u/upc_xxx \
+  --file ./build.zip
+```
 
-- Nginx 是否加载了 `q.empjs.dev` 的配置
-- 域名是否真的指向这台服务器
-- Cloudflare 回源是否到了这台机器
-- 本机 `127.0.0.1:7319` 是否已经返回 `200`
+`curl` 方式：
 
-### 首页能打开，但没有管理功能
+```bash
+curl -F file=@./build.zip https://q.empjs.dev/u/upc_xxx
+```
 
-优先检查：
+返回结果会包含：
 
-- 启动命令里是否带了 `--web-dir /opt/deployctl/website`
-- 解压包里是否包含 `website/`
-- 打开的是否真的是 `q.empjs.dev`，而不是 GitHub Pages 说明页
+- `file_url`
+- `saved_path`
+- `uploaded_at`
 
-## 8. 最小验收清单
+## 7. 首页使用方式
 
-全部完成后，至少确认这 4 件事：
+首页地址：
 
-1. `curl -I https://q.empjs.dev/` 返回 `200`
-2. `curl -I https://q.empjs.dev/v1/health` 返回 `200`
-3. 首页输入 `adminKey` 后能创建 share link
-4. share link 形如 `https://q.empjs.dev/s/<share_code>`
+- `https://q.empjs.dev/`
+
+这页现在只做三件事：
+
+1. 输入一次 `adminKey`
+2. 点击 `生成并复制上传链接`
+3. 查看最近上传链接和最近上传结果
+
+高级参数折叠在 `<details>` 中：
+
+- `folder`
+- `expires_in`
+- `max_files`
+
+## 8. 验收清单
+
+至少确认这几件事：
+
+1. `curl https://q.empjs.dev/v1/health` 返回 `{"status":"ok"}`
+2. `curl -I https://q.empjs.dev/` 返回 `200`
+3. `deployctl upload-link create` 能返回 `https://q.empjs.dev/u/<grant_code>`
+4. 目标 agent 用这条 URL 能成功上传文件
+5. 返回值里能拿到 `file_url` 和 `saved_path`

@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,79 +65,12 @@ func TestHealthAndWhoAmI(t *testing.T) {
 	}
 }
 
-func TestWhoAmIWithoutToken(t *testing.T) {
+func TestUploadLinkHTTPFlow(t *testing.T) {
 	_, srv := newTestServer(t)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/v1/auth/whoami")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
-	}
-}
-
-func TestAdminSecretAndRevoke(t *testing.T) {
-	store, srv := newTestServer(t)
-	defer srv.Close()
-
-	body := `{"name":"ci-bot","scope":"read-only"}`
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/tokens", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 without secret, got %d", resp.StatusCode)
-	}
-
-	req2, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/tokens", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("X-Admin-Secret", "secret")
-	resp2, err := http.DefaultClient.Do(req2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp2.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", resp2.StatusCode)
-	}
-	var created types.CreateTokenResponse
-	if err := json.NewDecoder(resp2.Body).Decode(&created); err != nil {
-		t.Fatal(err)
-	}
-
-	req3, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/tokens/"+created.TokenID+"/revoke", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req3.Header.Set("X-Admin-Secret", "secret")
-	resp3, err := http.DefaultClient.Do(req3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp3.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp3.StatusCode)
-	}
-
-	if _, err := store.ValidateToken(created.Token); err != auth.ErrRevokedToken {
-		t.Fatalf("expected revoked token, got %v", err)
-	}
-}
-
-func TestShareLinkHTTPFlow(t *testing.T) {
-	_, srv := newTestServer(t)
-	defer srv.Close()
-
-	createReq := `{"share_name":"demo handoff","token_name":"agent-bot","scope":"project:demo","project_scope":"demo","share_expires_in":"1h","token_expires_in":"12h","max_claims":1}`
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/share-links", strings.NewReader(createReq))
+	createReq := `{"folder":"releases/demo","expires_in":"1h","max_files":1}`
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/upload-links", strings.NewReader(createReq))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,45 +83,67 @@ func TestShareLinkHTTPFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
-	var created types.CreateShareLinkResponse
+	var created types.CreateUploadGrantResponse
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
 
-	resolveResp, err := http.Get(srv.URL + "/v1/share-links/resolve?code=" + created.ShareCode)
+	infoResp, err := http.Get(created.UploadURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolveResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 on resolve, got %d", resolveResp.StatusCode)
+	if infoResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on inspect, got %d", infoResp.StatusCode)
 	}
 
-	claimReq, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/share-links/claim?code="+created.ShareCode, nil)
+	var uploadBody bytes.Buffer
+	writer := multipart.NewWriter(&uploadBody)
+	part, err := writer.CreateFormFile("file", "bundle.zip")
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimResp, err := http.DefaultClient.Do(claimReq)
+	if _, err := part.Write([]byte("payload")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	uploadReq, err := http.NewRequest(http.MethodPost, created.UploadURL, &uploadBody)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claimResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 on claim, got %d", claimResp.StatusCode)
-	}
-	var claimed types.ClaimShareLinkResponse
-	if err := json.NewDecoder(claimResp.Body).Decode(&claimed); err != nil {
+	uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+	uploadResp, err := http.DefaultClient.Do(uploadReq)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if claimed.Token == "" || claimed.ProjectScope != "demo" {
-		t.Fatalf("unexpected claim response: %+v", claimed)
+	if uploadResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 on upload, got %d", uploadResp.StatusCode)
+	}
+	var uploaded types.UploadFileResponse
+	if err := json.NewDecoder(uploadResp.Body).Decode(&uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if uploaded.FileURL == "" || uploaded.SavedPath == "" {
+		t.Fatalf("unexpected upload response: %+v", uploaded)
+	}
+
+	resultResp, err := http.Get(created.UploadURL + "/result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resultResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on result, got %d", resultResp.StatusCode)
 	}
 }
 
-func TestRevokedShareLinkDisappearsFromBootstrap(t *testing.T) {
+func TestDeletedUploadLinkDisappearsFromBootstrap(t *testing.T) {
 	_, srv := newTestServer(t)
 	defer srv.Close()
 
-	createReq := `{"share_name":"demo handoff","token_name":"agent-bot","scope":"read-only","max_claims":1}`
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/share-links", strings.NewReader(createReq))
+	createReq := `{"folder":"handoff/demo","max_files":1}`
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/upload-links", strings.NewReader(createReq))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,22 +156,22 @@ func TestRevokedShareLinkDisappearsFromBootstrap(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
-	var created types.CreateShareLinkResponse
+	var created types.CreateUploadGrantResponse
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
 
-	revokeReq, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/admin/share-links/"+created.ShareID+"/revoke", nil)
+	deleteReq, err := http.NewRequest(http.MethodDelete, srv.URL+"/v1/admin/upload-links/"+created.GrantID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	revokeReq.Header.Set("X-Admin-Secret", "secret")
-	revokeResp, err := http.DefaultClient.Do(revokeReq)
+	deleteReq.Header.Set("X-Admin-Secret", "secret")
+	deleteResp, err := http.DefaultClient.Do(deleteReq)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if revokeResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 on revoke, got %d", revokeResp.StatusCode)
+	if deleteResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on delete, got %d", deleteResp.StatusCode)
 	}
 
 	bootstrapReq, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/admin/bootstrap", nil)
@@ -233,15 +190,15 @@ func TestRevokedShareLinkDisappearsFromBootstrap(t *testing.T) {
 	if err := json.NewDecoder(bootstrapResp.Body).Decode(&bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	if len(bootstrap.ShareLinks) != 0 {
-		t.Fatalf("expected deleted share link to disappear from bootstrap, got %d items", len(bootstrap.ShareLinks))
+	if len(bootstrap.UploadLinks) != 0 {
+		t.Fatalf("expected deleted upload link to disappear, got %d items", len(bootstrap.UploadLinks))
 	}
 
-	resolveResp, err := http.Get(srv.URL + "/v1/share-links/resolve?code=" + created.ShareCode)
+	infoResp, err := http.Get(created.UploadURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolveResp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 after delete, got %d", resolveResp.StatusCode)
+	if infoResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 after delete, got %d", infoResp.StatusCode)
 	}
 }

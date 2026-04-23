@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,29 +21,37 @@ import (
 )
 
 var (
-	ErrMissingToken      = errors.New("missing token")
-	ErrInvalidToken      = errors.New("invalid token")
-	ErrExpiredToken      = errors.New("expired token")
-	ErrRevokedToken      = errors.New("revoked token")
-	ErrInvalidShareLink  = errors.New("invalid share link")
-	ErrExpiredShareLink  = errors.New("expired share link")
-	ErrRevokedShareLink  = errors.New("revoked share link")
-	ErrClaimLimitReached = errors.New("share link claim limit reached")
+	ErrMissingToken       = errors.New("missing token")
+	ErrInvalidToken       = errors.New("invalid token")
+	ErrExpiredToken       = errors.New("expired token")
+	ErrRevokedToken       = errors.New("revoked token")
+	ErrInvalidUploadGrant = errors.New("invalid upload grant")
+	ErrExpiredUploadGrant = errors.New("expired upload grant")
+	ErrUploadLimitReached = errors.New("upload limit reached")
 )
 
 type Store struct {
-	tokenPath string
-	sharePath string
-	mu        sync.Mutex
-	tokens    []types.TokenRecord
-	shares    []types.ShareLinkRecord
+	tokenPath   string
+	grantPath   string
+	uploadPath  string
+	uploadsRoot string
+	mu          sync.Mutex
+	tokens      []types.TokenRecord
+	grants      []types.UploadGrantRecord
+	uploads     []types.UploadRecord
 }
 
 func NewStore(dataDir string) *Store {
 	return &Store{
-		tokenPath: filepath.Join(dataDir, "tokens.json"),
-		sharePath: filepath.Join(dataDir, "share_links.json"),
+		tokenPath:   filepath.Join(dataDir, "tokens.json"),
+		grantPath:   filepath.Join(dataDir, "upload_grants.json"),
+		uploadPath:  filepath.Join(dataDir, "uploads.json"),
+		uploadsRoot: filepath.Join(dataDir, "files"),
 	}
+}
+
+func (s *Store) UploadRootDir() string {
+	return s.uploadsRoot
 }
 
 func (s *Store) Load() error {
@@ -54,10 +64,16 @@ func (s *Store) loadLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.tokenPath), 0o755); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(s.uploadsRoot, 0o755); err != nil {
+		return err
+	}
 	if err := s.loadTokensLocked(); err != nil {
 		return err
 	}
-	return s.loadSharesLocked()
+	if err := s.loadGrantsLocked(); err != nil {
+		return err
+	}
+	return s.loadUploadsLocked()
 }
 
 func loadJSONFile(path string, dest any) error {
@@ -74,16 +90,6 @@ func loadJSONFile(path string, dest any) error {
 	return json.Unmarshal(data, dest)
 }
 
-func (s *Store) loadTokensLocked() error {
-	s.tokens = []types.TokenRecord{}
-	return loadJSONFile(s.tokenPath, &s.tokens)
-}
-
-func (s *Store) loadSharesLocked() error {
-	s.shares = []types.ShareLinkRecord{}
-	return loadJSONFile(s.sharePath, &s.shares)
-}
-
 func saveJSONFile(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -92,12 +98,31 @@ func saveJSONFile(path string, v any) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
+func (s *Store) loadTokensLocked() error {
+	s.tokens = []types.TokenRecord{}
+	return loadJSONFile(s.tokenPath, &s.tokens)
+}
+
+func (s *Store) loadGrantsLocked() error {
+	s.grants = []types.UploadGrantRecord{}
+	return loadJSONFile(s.grantPath, &s.grants)
+}
+
+func (s *Store) loadUploadsLocked() error {
+	s.uploads = []types.UploadRecord{}
+	return loadJSONFile(s.uploadPath, &s.uploads)
+}
+
 func (s *Store) saveTokensLocked() error {
 	return saveJSONFile(s.tokenPath, s.tokens)
 }
 
-func (s *Store) saveSharesLocked() error {
-	return saveJSONFile(s.sharePath, s.shares)
+func (s *Store) saveGrantsLocked() error {
+	return saveJSONFile(s.grantPath, s.grants)
+}
+
+func (s *Store) saveUploadsLocked() error {
+	return saveJSONFile(s.uploadPath, s.uploads)
 }
 
 func hashSecret(value string) string {
@@ -114,28 +139,27 @@ func newOpaque(prefix string, n int) (string, error) {
 }
 
 func parseExpiry(expiresIn string) (*time.Time, error) {
-	if expiresIn == "" {
+	if strings.TrimSpace(expiresIn) == "" {
 		return nil, nil
 	}
 	if strings.HasSuffix(expiresIn, "d") {
-		days := strings.TrimSuffix(expiresIn, "d")
-		days = strings.TrimSpace(days)
+		days := strings.TrimSpace(strings.TrimSuffix(expiresIn, "d"))
 		if days == "" {
 			return nil, errors.New("invalid duration: missing day count")
 		}
-		dayCount, err := time.ParseDuration(days + "h")
+		duration, err := time.ParseDuration(days + "h")
 		if err != nil {
 			return nil, fmt.Errorf("invalid duration: %w", err)
 		}
-		t := time.Now().UTC().Add(dayCount * 24)
-		return &t, nil
+		expiry := time.Now().UTC().Add(duration * 24)
+		return &expiry, nil
 	}
-	dur, err := time.ParseDuration(expiresIn)
+	duration, err := time.ParseDuration(expiresIn)
 	if err != nil {
 		return nil, fmt.Errorf("invalid duration: %w", err)
 	}
-	t := time.Now().UTC().Add(dur)
-	return &t, nil
+	expiry := time.Now().UTC().Add(duration)
+	return &expiry, nil
 }
 
 func validateScope(scope string, projectScope string) error {
@@ -166,20 +190,33 @@ func tokenSummary(record types.TokenRecord) types.TokenSummary {
 	}
 }
 
-func shareSummary(record types.ShareLinkRecord) types.ShareLinkSummary {
-	return types.ShareLinkSummary{
-		ShareID:        record.ShareID,
-		ShareName:      record.ShareName,
-		Scope:          record.Scope,
-		ProjectScope:   record.ProjectScope,
-		TokenName:      record.TokenName,
-		TokenExpiresIn: record.TokenExpiresIn,
-		MaxClaims:      record.MaxClaims,
-		ClaimCount:     record.ClaimCount,
+func grantSummary(record types.UploadGrantRecord, publicBaseURL string) types.UploadGrantSummary {
+	remaining := record.MaxFiles - record.UploadCount
+	if remaining < 0 {
+		remaining = 0
+	}
+	return types.UploadGrantSummary{
+		GrantID:        record.GrantID,
+		UploadURL:      buildUploadURL(publicBaseURL, record.GrantCode),
+		Folder:         record.Folder,
+		MaxFiles:       record.MaxFiles,
+		UploadCount:    record.UploadCount,
+		RemainingFiles: remaining,
 		CreatedAt:      record.CreatedAt,
 		ExpiresAt:      record.ExpiresAt,
-		RevokedAt:      record.RevokedAt,
-		ClaimedAt:      record.ClaimedAt,
+	}
+}
+
+func uploadSummary(record types.UploadRecord) types.UploadSummary {
+	return types.UploadSummary{
+		UploadID:         record.UploadID,
+		GrantID:          record.GrantID,
+		OriginalFileName: record.OriginalFileName,
+		SavedPath:        record.SavedPath,
+		FileURL:          record.FileURL,
+		SizeBytes:        record.SizeBytes,
+		UploadedAt:       record.UploadedAt,
+		Folder:           record.UploadGrantFolder,
 	}
 }
 
@@ -215,6 +252,118 @@ func createTokenRecord(name string, scope string, projectScope string, expiresIn
 		ExpiresAt:    expiresAt,
 	}
 	return record, token, nil
+}
+
+func defaultGrantFolder(now time.Time) string {
+	return path.Join("uploads", now.UTC().Format("2006/01/02"))
+}
+
+func sanitizeRelativeFolder(folder string, now time.Time) (string, error) {
+	folder = strings.TrimSpace(folder)
+	if folder == "" {
+		return defaultGrantFolder(now), nil
+	}
+	folder = strings.ReplaceAll(folder, "\\", "/")
+	cleaned := path.Clean("/" + folder)
+	cleaned = strings.TrimPrefix(cleaned, "/")
+	if cleaned == "." || cleaned == "" {
+		return defaultGrantFolder(now), nil
+	}
+	if strings.HasPrefix(cleaned, "../") || cleaned == ".." {
+		return "", errors.New("folder must stay inside uploads root")
+	}
+	parts := strings.Split(cleaned, "/")
+	safeParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "." || part == ".." {
+			return "", errors.New("folder contains invalid path segments")
+		}
+		safeParts = append(safeParts, sanitizePathPart(part))
+	}
+	return path.Join(safeParts...), nil
+}
+
+func sanitizePathPart(input string) string {
+	var b strings.Builder
+	for _, r := range input {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "item"
+	}
+	return out
+}
+
+func buildUploadURL(publicBaseURL string, grantCode string) string {
+	base := strings.TrimRight(publicBaseURL, "/")
+	return base + "/u/" + url.PathEscape(grantCode)
+}
+
+func buildFileURL(publicBaseURL string, savedPath string) string {
+	base, _ := url.Parse(strings.TrimRight(publicBaseURL, "/"))
+	base.Path = path.Join(base.Path, "/files/", savedPath)
+	return base.String()
+}
+
+func findGrantRecord(records []types.UploadGrantRecord, grantID string, code string) *types.UploadGrantRecord {
+	hashedCode := ""
+	if code != "" {
+		hashedCode = hashSecret(code)
+	}
+	for i := range records {
+		record := &records[i]
+		if grantID != "" && record.GrantID == grantID {
+			return record
+		}
+		if hashedCode != "" && record.GrantCodeHash == hashedCode {
+			return record
+		}
+	}
+	return nil
+}
+
+func validateGrant(record *types.UploadGrantRecord, code string) error {
+	if record == nil {
+		return ErrInvalidUploadGrant
+	}
+	if code != "" && hashSecret(code) != record.GrantCodeHash {
+		return ErrInvalidUploadGrant
+	}
+	if record.ExpiresAt != nil && time.Now().UTC().After(*record.ExpiresAt) {
+		return ErrExpiredUploadGrant
+	}
+	if record.MaxFiles > 0 && record.UploadCount >= record.MaxFiles {
+		return ErrUploadLimitReached
+	}
+	return nil
+}
+
+func sanitizeFileName(name string) string {
+	base := filepath.Base(strings.TrimSpace(name))
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	stem = sanitizePathPart(stem)
+	ext = sanitizePathPart(strings.TrimPrefix(ext, "."))
+	if ext == "item" {
+		ext = ""
+	}
+	if ext != "" {
+		return stem + "." + ext
+	}
+	return stem
 }
 
 func (s *Store) CreateToken(ctx context.Context, req types.CreateTokenRequest) (*types.CreateTokenResponse, error) {
@@ -304,60 +453,40 @@ func (s *Store) ValidateToken(raw string) (*types.TokenRecord, error) {
 	return nil, ErrInvalidToken
 }
 
-func buildShareURL(publicBaseURL string, shareCode string) string {
-	base := strings.TrimRight(publicBaseURL, "/")
-	return base + "/s/" + url.PathEscape(shareCode)
-}
-
-func buildClaimURL(publicBaseURL string, shareCode string) string {
-	base := strings.TrimRight(publicBaseURL, "/")
-	return base + "/v1/share-links/claim?code=" + url.QueryEscape(shareCode)
-}
-
-func buildResolveURL(publicBaseURL string, shareCode string) string {
-	base := strings.TrimRight(publicBaseURL, "/")
-	return base + "/v1/share-links/resolve?code=" + url.QueryEscape(shareCode)
-}
-
-func (s *Store) CreateShareLink(req types.CreateShareLinkRequest, publicBaseURL string) (*types.CreateShareLinkResponse, error) {
-	if req.ShareName == "" {
-		return nil, errors.New("share_name is required")
-	}
-	if req.TokenName == "" {
-		return nil, errors.New("token_name is required")
-	}
-	if req.Scope == "" {
-		return nil, errors.New("scope is required")
-	}
-	if err := validateScope(req.Scope, req.ProjectScope); err != nil {
-		return nil, err
-	}
-	if req.MaxClaims <= 0 {
-		req.MaxClaims = 1
-	}
-	expiresAt, err := parseExpiry(req.ShareExpiresIn)
+func (s *Store) CreateUploadGrant(req types.CreateUploadGrantRequest, publicBaseURL string) (*types.CreateUploadGrantResponse, error) {
+	now := time.Now().UTC()
+	folder, err := sanitizeRelativeFolder(req.Folder, now)
 	if err != nil {
 		return nil, err
 	}
-	shareID, err := newOpaque("shr_", 8)
+	if req.MaxFiles <= 0 {
+		req.MaxFiles = 1
+	}
+	if strings.TrimSpace(req.ExpiresIn) == "" {
+		req.ExpiresIn = "24h"
+	}
+	expiresAt, err := parseExpiry(req.ExpiresIn)
 	if err != nil {
 		return nil, err
 	}
-	shareCode, err := newOpaque("shc_", 12)
+	grantID, err := newOpaque("grt_", 8)
 	if err != nil {
 		return nil, err
 	}
-	record := types.ShareLinkRecord{
-		ShareID:        shareID,
-		ShareName:      req.ShareName,
-		ShareCodeHash:  hashSecret(shareCode),
-		Scope:          req.Scope,
-		ProjectScope:   req.ProjectScope,
-		TokenName:      req.TokenName,
-		TokenExpiresIn: req.TokenExpiresIn,
-		MaxClaims:      req.MaxClaims,
-		CreatedAt:      time.Now().UTC(),
-		ExpiresAt:      expiresAt,
+	grantCode, err := newOpaque("upc_", 12)
+	if err != nil {
+		return nil, err
+	}
+
+	record := types.UploadGrantRecord{
+		GrantID:       grantID,
+		GrantCode:     grantCode,
+		GrantCodeHash: hashSecret(grantCode),
+		Folder:        folder,
+		MaxFiles:      req.MaxFiles,
+		UploadCount:   0,
+		CreatedAt:     now,
+		ExpiresAt:     expiresAt,
 	}
 
 	s.mu.Lock()
@@ -365,126 +494,126 @@ func (s *Store) CreateShareLink(req types.CreateShareLinkRequest, publicBaseURL 
 	if err := s.loadLocked(); err != nil {
 		return nil, err
 	}
-	s.shares = append(s.shares, record)
-	if err := s.saveSharesLocked(); err != nil {
+	s.grants = append(s.grants, record)
+	if err := s.saveGrantsLocked(); err != nil {
 		return nil, err
 	}
 
-	return &types.CreateShareLinkResponse{
-		ShareID:        shareID,
-		ShareCode:      shareCode,
-		ShareName:      record.ShareName,
-		TokenName:      record.TokenName,
-		Scope:          record.Scope,
-		ProjectScope:   record.ProjectScope,
-		TokenExpiresIn: record.TokenExpiresIn,
-		MaxClaims:      record.MaxClaims,
-		ExpiresAt:      record.ExpiresAt,
-		ShareURL:       buildShareURL(publicBaseURL, shareCode),
-		ResolveURL:     buildResolveURL(publicBaseURL, shareCode),
-		ClaimURL:       buildClaimURL(publicBaseURL, shareCode),
+	return &types.CreateUploadGrantResponse{
+		GrantID:    grantID,
+		GrantCode:  grantCode,
+		UploadURL:  buildUploadURL(publicBaseURL, grantCode),
+		Folder:     folder,
+		MaxFiles:   req.MaxFiles,
+		CreatedAt:  now,
+		ExpiresAt:  expiresAt,
+		UploadPath: "/" + folder,
 	}, nil
 }
 
-func (s *Store) ListShareLinks() ([]types.ShareLinkSummary, error) {
+func (s *Store) ListUploadGrants(publicBaseURL string) ([]types.UploadGrantSummary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.loadLocked(); err != nil {
 		return nil, err
 	}
-	out := make([]types.ShareLinkSummary, 0, len(s.shares))
-	for _, record := range s.shares {
-		out = append(out, shareSummary(record))
+	out := make([]types.UploadGrantSummary, 0, len(s.grants))
+	for _, record := range s.grants {
+		out = append(out, grantSummary(record, publicBaseURL))
 	}
 	return out, nil
 }
 
-func (s *Store) RevokeShareLink(shareID string) (*types.RevokeShareLinkResponse, error) {
+func (s *Store) DeleteUploadGrant(grantID string) (*types.DeleteUploadGrantResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.loadLocked(); err != nil {
 		return nil, err
 	}
-	for i := range s.shares {
-		if s.shares[i].ShareID != shareID {
+	for i := range s.grants {
+		if s.grants[i].GrantID != grantID {
 			continue
 		}
-		s.shares = append(s.shares[:i], s.shares[i+1:]...)
-		if err := s.saveSharesLocked(); err != nil {
+		s.grants = append(s.grants[:i], s.grants[i+1:]...)
+		if err := s.saveGrantsLocked(); err != nil {
 			return nil, err
 		}
-		return &types.RevokeShareLinkResponse{ShareID: shareID}, nil
+		return &types.DeleteUploadGrantResponse{GrantID: grantID}, nil
 	}
-	return nil, ErrInvalidShareLink
+	return nil, ErrInvalidUploadGrant
 }
 
-func validateShare(record *types.ShareLinkRecord, code string) error {
-	if record == nil {
-		return ErrInvalidShareLink
-	}
-	if record.RevokedAt != nil {
-		return ErrRevokedShareLink
-	}
-	if record.ExpiresAt != nil && time.Now().UTC().After(*record.ExpiresAt) {
-		return ErrExpiredShareLink
-	}
-	if record.MaxClaims > 0 && record.ClaimCount >= record.MaxClaims {
-		return ErrClaimLimitReached
-	}
-	if hashSecret(code) != record.ShareCodeHash {
-		return ErrInvalidShareLink
-	}
-	return nil
-}
-
-func findShareRecord(records []types.ShareLinkRecord, shareID string, code string) *types.ShareLinkRecord {
-	hashedCode := ""
-	if code != "" {
-		hashedCode = hashSecret(code)
-	}
-	for i := range records {
-		record := &records[i]
-		if shareID != "" && record.ShareID == shareID {
-			return record
-		}
-		if hashedCode != "" && record.ShareCodeHash == hashedCode {
-			return record
-		}
-	}
-	return nil
-}
-
-func (s *Store) ResolveShareLink(shareID string, code string, publicBaseURL string) (*types.ResolveShareLinkResponse, error) {
+func (s *Store) ListUploads() ([]types.UploadSummary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.loadLocked(); err != nil {
 		return nil, err
 	}
-	record := findShareRecord(s.shares, shareID, code)
-	if record != nil {
-		if err := validateShare(record, code); err != nil {
-			return nil, err
-		}
-		return &types.ResolveShareLinkResponse{
-			ShareID:      record.ShareID,
-			ShareName:    record.ShareName,
-			TokenName:    record.TokenName,
-			Scope:        record.Scope,
-			ProjectScope: record.ProjectScope,
-			ServerURL:    strings.TrimRight(publicBaseURL, "/"),
-			ClaimURL:     buildClaimURL(publicBaseURL, code),
-			Valid:        true,
-			MaxClaims:    record.MaxClaims,
-			ClaimCount:   record.ClaimCount,
-			ExpiresAt:    record.ExpiresAt,
-		}, nil
+	out := make([]types.UploadSummary, 0, len(s.uploads))
+	for _, record := range s.uploads {
+		out = append(out, uploadSummary(record))
 	}
-	return nil, ErrInvalidShareLink
+	return out, nil
 }
 
-func (s *Store) ClaimShareLink(req types.ClaimShareLinkRequest, publicBaseURL string) (*types.ClaimShareLinkResponse, error) {
-	if req.Code == "" && req.ShareID == "" {
-		return nil, ErrInvalidShareLink
+func (s *Store) InspectUploadGrant(code string, publicBaseURL string) (*types.UploadGrantInfoResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.loadLocked(); err != nil {
+		return nil, err
+	}
+	record := findGrantRecord(s.grants, "", code)
+	if err := validateGrant(record, code); err != nil {
+		return nil, err
+	}
+	summary := grantSummary(*record, publicBaseURL)
+	return &types.UploadGrantInfoResponse{
+		UploadURL:      buildUploadURL(publicBaseURL, code),
+		Folder:         summary.Folder,
+		MaxFiles:       summary.MaxFiles,
+		UploadCount:    summary.UploadCount,
+		RemainingFiles: summary.RemainingFiles,
+		CreatedAt:      summary.CreatedAt,
+		ExpiresAt:      summary.ExpiresAt,
+		Valid:          true,
+	}, nil
+}
+
+func (s *Store) LatestUploadForGrant(code string) (*types.UploadFileResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.loadLocked(); err != nil {
+		return nil, err
+	}
+	record := findGrantRecord(s.grants, "", code)
+	if record == nil || hashSecret(code) != record.GrantCodeHash {
+		return nil, ErrInvalidUploadGrant
+	}
+	for i := len(s.uploads) - 1; i >= 0; i-- {
+		if s.uploads[i].GrantID != record.GrantID {
+			continue
+		}
+		upload := s.uploads[i]
+		return &types.UploadFileResponse{
+			UploadID:         upload.UploadID,
+			GrantID:          upload.GrantID,
+			OriginalFileName: upload.OriginalFileName,
+			SavedPath:        upload.SavedPath,
+			FileURL:          upload.FileURL,
+			SizeBytes:        upload.SizeBytes,
+			UploadedAt:       upload.UploadedAt,
+			Folder:           upload.UploadGrantFolder,
+		}, nil
+	}
+	return nil, ErrInvalidUploadGrant
+}
+
+func (s *Store) SaveUploadedFile(code string, originalName string, contentType string, body io.Reader, publicBaseURL string) (*types.UploadFileResponse, error) {
+	if strings.TrimSpace(originalName) == "" {
+		return nil, errors.New("file name is required")
+	}
+	if body == nil {
+		return nil, errors.New("file body is required")
 	}
 
 	s.mu.Lock()
@@ -492,39 +621,66 @@ func (s *Store) ClaimShareLink(req types.ClaimShareLinkRequest, publicBaseURL st
 	if err := s.loadLocked(); err != nil {
 		return nil, err
 	}
-
-	record := findShareRecord(s.shares, req.ShareID, req.Code)
-	if record != nil {
-		if err := validateShare(record, req.Code); err != nil {
-			return nil, err
-		}
-
-		tokenRecord, rawToken, err := createTokenRecord(record.TokenName, record.Scope, record.ProjectScope, record.TokenExpiresIn)
-		if err != nil {
-			return nil, err
-		}
-		s.tokens = append(s.tokens, tokenRecord)
-		record.ClaimCount++
-		now := time.Now().UTC()
-		if record.ClaimedAt == nil {
-			record.ClaimedAt = &now
-		}
-		if err := s.saveTokensLocked(); err != nil {
-			return nil, err
-		}
-		if err := s.saveSharesLocked(); err != nil {
-			return nil, err
-		}
-
-		return &types.ClaimShareLinkResponse{
-			ServerURL:    strings.TrimRight(publicBaseURL, "/"),
-			Token:        rawToken,
-			TokenID:      tokenRecord.TokenID,
-			TokenName:    tokenRecord.TokenName,
-			Scope:        tokenRecord.Scope,
-			ProjectScope: tokenRecord.ProjectScope,
-			ExpiresAt:    tokenRecord.ExpiresAt,
-		}, nil
+	record := findGrantRecord(s.grants, "", code)
+	if err := validateGrant(record, code); err != nil {
+		return nil, err
 	}
-	return nil, ErrInvalidShareLink
+
+	uploadID, err := newOpaque("upl_", 8)
+	if err != nil {
+		return nil, err
+	}
+	safeName := sanitizeFileName(originalName)
+	timestamp := time.Now().UTC().Format("20060102-150405")
+	storedName := timestamp + "-" + uploadID + "-" + safeName
+	folderPath := filepath.Join(s.uploadsRoot, filepath.FromSlash(record.Folder))
+	if err := os.MkdirAll(folderPath, 0o755); err != nil {
+		return nil, err
+	}
+	absolutePath := filepath.Join(folderPath, storedName)
+	file, err := os.Create(absolutePath)
+	if err != nil {
+		return nil, err
+	}
+	size, copyErr := io.Copy(file, body)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return nil, copyErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+
+	savedPath := path.Join(record.Folder, storedName)
+	now := time.Now().UTC()
+	uploadRecord := types.UploadRecord{
+		UploadID:          uploadID,
+		GrantID:           record.GrantID,
+		OriginalFileName:  filepath.Base(strings.TrimSpace(originalName)),
+		StoredFileName:    storedName,
+		SavedPath:         savedPath,
+		FileURL:           buildFileURL(publicBaseURL, savedPath),
+		ContentType:       contentType,
+		SizeBytes:         size,
+		UploadedAt:        now,
+		UploadGrantFolder: record.Folder,
+	}
+	record.UploadCount++
+	s.uploads = append(s.uploads, uploadRecord)
+	if err := s.saveUploadsLocked(); err != nil {
+		return nil, err
+	}
+	if err := s.saveGrantsLocked(); err != nil {
+		return nil, err
+	}
+	return &types.UploadFileResponse{
+		UploadID:         uploadRecord.UploadID,
+		GrantID:          uploadRecord.GrantID,
+		OriginalFileName: uploadRecord.OriginalFileName,
+		SavedPath:        uploadRecord.SavedPath,
+		FileURL:          uploadRecord.FileURL,
+		SizeBytes:        uploadRecord.SizeBytes,
+		UploadedAt:       uploadRecord.UploadedAt,
+		Folder:           uploadRecord.UploadGrantFolder,
+	}, nil
 }

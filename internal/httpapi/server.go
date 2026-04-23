@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -74,7 +75,7 @@ func publicBaseURL(r *http.Request) string {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Secret")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -96,12 +97,6 @@ func staticHandler(webDir string) http.Handler {
 		if requestPath == "" {
 			requestPath = "index.html"
 		}
-		if strings.HasPrefix(requestPath, "s/") {
-			if _, err := os.Stat(indexPath); err == nil {
-				http.ServeFile(w, r, indexPath)
-				return
-			}
-		}
 
 		candidate := filepath.Join(webDir, filepath.Clean(requestPath))
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
@@ -117,25 +112,36 @@ func staticHandler(webDir string) http.Handler {
 	})
 }
 
+func readUploadedFile(r *http.Request) (multipart.File, *multipart.FileHeader, error) {
+	if err := r.ParseMultipartForm(128 << 20); err != nil {
+		return nil, nil, err
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		return nil, nil, err
+	}
+	return file, header, nil
+}
+
 func (s *Server) adminBootstrap(w http.ResponseWriter, r *http.Request) {
 	if !s.validateAdmin(r) {
 		writeError(w, http.StatusUnauthorized, "invalid_admin_secret", "admin secret is invalid")
 		return
 	}
-	tokens, err := s.store.ListTokens()
+	grants, err := s.store.ListUploadGrants(publicBaseURL(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", err.Error())
 		return
 	}
-	shares, err := s.store.ListShareLinks()
+	uploads, err := s.store.ListUploads()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, types.AdminBootstrapResponse{
-		ServerURL:  publicBaseURL(r),
-		Tokens:     tokens,
-		ShareLinks: shares,
+		ServerURL:   publicBaseURL(r),
+		UploadLinks: grants,
+		Uploads:     uploads,
 	})
 }
 
@@ -234,26 +240,26 @@ func (s *Server) APIHandler() http.Handler {
 		writeJSON(w, http.StatusOK, resp)
 	})
 
-	mux.HandleFunc("/v1/admin/share-links", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/admin/upload-links", func(w http.ResponseWriter, r *http.Request) {
 		if !s.validateAdmin(r) {
 			writeError(w, http.StatusUnauthorized, "invalid_admin_secret", "admin secret is invalid")
 			return
 		}
 		switch r.Method {
 		case http.MethodGet:
-			records, err := s.store.ListShareLinks()
+			records, err := s.store.ListUploadGrants(publicBaseURL(r))
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "server_error", err.Error())
 				return
 			}
 			writeJSON(w, http.StatusOK, records)
 		case http.MethodPost:
-			var req types.CreateShareLinkRequest
+			var req types.CreateUploadGrantRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid json")
 				return
 			}
-			resp, err := s.store.CreateShareLink(req, publicBaseURL(r))
+			resp, err := s.store.CreateUploadGrant(req, publicBaseURL(r))
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 				return
@@ -264,24 +270,24 @@ func (s *Server) APIHandler() http.Handler {
 		}
 	})
 
-	mux.HandleFunc("/v1/admin/share-links/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/admin/upload-links/", func(w http.ResponseWriter, r *http.Request) {
 		if !s.validateAdmin(r) {
 			writeError(w, http.StatusUnauthorized, "invalid_admin_secret", "admin secret is invalid")
 			return
 		}
-		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/revoke") {
+		if r.Method != http.MethodDelete {
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-		shareID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/admin/share-links/"), "/revoke")
-		shareID = strings.TrimSuffix(shareID, "/")
-		if shareID == "" {
-			writeError(w, http.StatusBadRequest, "invalid_share_id", "share id is required")
+		grantID := strings.TrimPrefix(r.URL.Path, "/v1/admin/upload-links/")
+		grantID = strings.TrimSuffix(grantID, "/")
+		if grantID == "" {
+			writeError(w, http.StatusBadRequest, "invalid_grant_id", "grant id is required")
 			return
 		}
-		resp, err := s.store.RevokeShareLink(shareID)
-		if err == auth.ErrInvalidShareLink {
-			writeError(w, http.StatusNotFound, "not_found", "share link not found")
+		resp, err := s.store.DeleteUploadGrant(grantID)
+		if err == auth.ErrInvalidUploadGrant {
+			writeError(w, http.StatusNotFound, "not_found", "upload link not found")
 			return
 		}
 		if err != nil {
@@ -291,76 +297,103 @@ func (s *Server) APIHandler() http.Handler {
 		writeJSON(w, http.StatusOK, resp)
 	})
 
-	mux.HandleFunc("/v1/share-links/resolve", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		shareID := r.URL.Query().Get("share_id")
-		code := r.URL.Query().Get("code")
-		resp, err := s.store.ResolveShareLink(shareID, code, publicBaseURL(r))
-		switch err {
-		case nil:
-			writeJSON(w, http.StatusOK, resp)
-		case auth.ErrInvalidShareLink:
-			writeError(w, http.StatusUnauthorized, "invalid_share_link", "share link is invalid")
-		case auth.ErrExpiredShareLink:
-			writeError(w, http.StatusUnauthorized, "expired_share_link", "share link has expired")
-		case auth.ErrRevokedShareLink:
-			writeError(w, http.StatusUnauthorized, "revoked_share_link", "share link has been revoked")
-		case auth.ErrClaimLimitReached:
-			writeError(w, http.StatusUnauthorized, "claim_limit_reached", "share link claim limit reached")
-		default:
-			writeError(w, http.StatusInternalServerError, "server_error", err.Error())
-		}
-	})
+	return withCORS(mux)
+}
 
-	mux.HandleFunc("/v1/share-links/claim", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost && r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+func (s *Server) uploadHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pathValue := strings.TrimPrefix(r.URL.Path, "/u/")
+		pathValue = strings.Trim(pathValue, "/")
+		if pathValue == "" {
+			writeError(w, http.StatusNotFound, "not_found", "upload link not found")
 			return
 		}
-		var req types.ClaimShareLinkRequest
-		if r.Method == http.MethodGet {
-			req = types.ClaimShareLinkRequest{
-				ShareID: r.URL.Query().Get("share_id"),
-				Code:    r.URL.Query().Get("code"),
+
+		parts := strings.Split(pathValue, "/")
+		code := parts[0]
+		isResult := len(parts) == 2 && parts[1] == "result"
+		if len(parts) > 2 || (len(parts) == 2 && !isResult) {
+			writeError(w, http.StatusNotFound, "not_found", "upload link not found")
+			return
+		}
+
+		switch {
+		case isResult && r.Method == http.MethodGet:
+			resp, err := s.store.LatestUploadForGrant(code)
+			switch err {
+			case nil:
+				writeJSON(w, http.StatusOK, resp)
+			case auth.ErrInvalidUploadGrant:
+				writeError(w, http.StatusNotFound, "not_found", "upload result not found")
+			default:
+				writeError(w, http.StatusInternalServerError, "server_error", err.Error())
 			}
-		} else {
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid json")
+			return
+		case !isResult && r.Method == http.MethodGet:
+			resp, err := s.store.InspectUploadGrant(code, publicBaseURL(r))
+			switch err {
+			case nil:
+				writeJSON(w, http.StatusOK, resp)
+			case auth.ErrInvalidUploadGrant:
+				writeError(w, http.StatusUnauthorized, "invalid_upload_link", "upload link is invalid")
+			case auth.ErrExpiredUploadGrant:
+				writeError(w, http.StatusUnauthorized, "expired_upload_link", "upload link has expired")
+			case auth.ErrUploadLimitReached:
+				writeError(w, http.StatusUnauthorized, "upload_limit_reached", "upload link has reached its limit")
+			default:
+				writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+			}
+			return
+		case !isResult && r.Method == http.MethodPost:
+			file, header, err := readUploadedFile(r)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_upload", "request must include multipart field file")
 				return
 			}
-		}
-		resp, err := s.store.ClaimShareLink(req, publicBaseURL(r))
-		switch err {
-		case nil:
-			writeJSON(w, http.StatusOK, resp)
-		case auth.ErrInvalidShareLink:
-			writeError(w, http.StatusUnauthorized, "invalid_share_link", "share link is invalid")
-		case auth.ErrExpiredShareLink:
-			writeError(w, http.StatusUnauthorized, "expired_share_link", "share link has expired")
-		case auth.ErrRevokedShareLink:
-			writeError(w, http.StatusUnauthorized, "revoked_share_link", "share link has been revoked")
-		case auth.ErrClaimLimitReached:
-			writeError(w, http.StatusUnauthorized, "claim_limit_reached", "share link claim limit reached")
+			defer file.Close()
+			resp, err := s.store.SaveUploadedFile(code, header.Filename, header.Header.Get("Content-Type"), file, publicBaseURL(r))
+			switch err {
+			case nil:
+				writeJSON(w, http.StatusCreated, resp)
+			case auth.ErrInvalidUploadGrant:
+				writeError(w, http.StatusUnauthorized, "invalid_upload_link", "upload link is invalid")
+			case auth.ErrExpiredUploadGrant:
+				writeError(w, http.StatusUnauthorized, "expired_upload_link", "upload link has expired")
+			case auth.ErrUploadLimitReached:
+				writeError(w, http.StatusUnauthorized, "upload_limit_reached", "upload link has reached its limit")
+			default:
+				writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			}
+			return
 		default:
-			writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
 	})
+}
 
-	return withCORS(mux)
+func fileHandler(root string) http.Handler {
+	if root == "" {
+		return http.NotFoundHandler()
+	}
+	return http.StripPrefix("/files/", http.FileServer(http.Dir(root)))
 }
 
 func (s *Server) Handler(webDir string) http.Handler {
 	api := s.APIHandler()
+	uploads := s.uploadHandler()
+	files := fileHandler(s.store.UploadRootDir())
 	static := staticHandler(webDir)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/v1/") {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/v1/"):
 			api.ServeHTTP(w, r)
-			return
+		case strings.HasPrefix(r.URL.Path, "/u/"):
+			uploads.ServeHTTP(w, r)
+		case strings.HasPrefix(r.URL.Path, "/files/"):
+			files.ServeHTTP(w, r)
+		default:
+			static.ServeHTTP(w, r)
 		}
-		static.ServeHTTP(w, r)
 	})
 }
