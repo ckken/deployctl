@@ -107,6 +107,18 @@ function formatExpiry(expiresAt) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+function scopeTone(scope) {
+  if (scope === "admin") return "scope-admin";
+  if (scope.startsWith("project:")) return "scope-project";
+  return "scope-read-only";
+}
+
+function scopeLabel(item) {
+  if (item.scope === "admin") return "管理员";
+  if (item.scope.startsWith("project:")) return item.project_scope ? `项目 ${item.project_scope}` : "项目访问";
+  return "只读";
+}
+
 function agentLinkForShare(serverUrl, share) {
   return share.share_url || new URL(`/s/${share.share_code}`, serverUrl).toString();
 }
@@ -188,16 +200,28 @@ function renderSelectedToken() {
 function renderTokens() {
   const tokens = [...activeTokens()].reverse();
   renderRecordList(els.tokensList, tokens, (item) => `
-    <div class="record">
-      <div class="record-title">${item.token_name}</div>
-      <div class="record-meta">${describeScope(item)}</div>
-      <div class="record-meta">到期：${formatExpiry(item.expires_at)}</div>
-      <div class="record-meta">id: ${item.token_id}</div>
-      <div class="record-actions">
-        <button class="button button-secondary select-token-button ${state.selectedTokenId === item.token_id ? "is-selected" : ""}" data-id="${item.token_id}">
-          ${state.selectedTokenId === item.token_id ? "已选中" : "用它生成分享"}
-        </button>
-        <button class="button button-secondary revoke-button" data-kind="token" data-id="${item.token_id}">吊销 token</button>
+    <div class="record ${state.selectedTokenId === item.token_id ? "is-selected" : ""}">
+      <div class="record-main">
+        <div class="record-icon">↗</div>
+        <div class="record-text">
+          <div class="record-top">
+            <div>
+              <div class="record-title">${item.token_name}</div>
+              <div class="record-pills">
+                <span class="scope-pill ${scopeTone(item.scope)}">${scopeLabel(item)}</span>
+              </div>
+            </div>
+          </div>
+          <div class="record-meta">范围：${describeScope(item)}</div>
+          <div class="record-meta">到期：${formatExpiry(item.expires_at)}</div>
+          <div class="record-meta">id: ${item.token_id}</div>
+          <div class="record-actions">
+            <button class="button button-secondary select-token-button ${state.selectedTokenId === item.token_id ? "is-selected" : ""}" data-id="${item.token_id}">
+              ${state.selectedTokenId === item.token_id ? "已选中" : "用它生成分享"}
+            </button>
+            <button class="button button-secondary revoke-button" data-kind="token" data-id="${item.token_id}">撤销 Token</button>
+          </div>
+        </div>
       </div>
     </div>
   `);
@@ -207,14 +231,19 @@ function renderShares() {
   const shares = [...activeShares()].reverse();
   renderRecordList(els.sharesList, shares, (item) => `
     <div class="record">
-      <div class="record-title">${item.share_name}</div>
-      <div class="record-meta">来源 token: ${item.token_name}</div>
-      <div class="record-meta">${describeScope(item)}</div>
-      <div class="record-meta">claims: ${item.claim_count}/${item.max_claims}</div>
-      <div class="record-meta">到期：${formatExpiry(item.expires_at)}</div>
-      <div class="record-meta">链接只在创建成功时展示一次。</div>
-      <div class="record-actions">
-        <button class="button button-secondary revoke-button" data-kind="share" data-id="${item.share_id}">删除分享</button>
+      <div class="record-main">
+        <div class="record-icon">⛓</div>
+        <div class="record-text">
+          <div class="record-title">${item.share_name}</div>
+          <div class="record-meta">来源 token：${item.token_name}</div>
+          <div class="record-meta">范围：${describeScope(item)}</div>
+          <div class="record-meta">剩余次数：${Math.max(item.max_claims - item.claim_count, 0)} / ${item.max_claims}</div>
+          <div class="record-meta">到期：${formatExpiry(item.expires_at)}</div>
+          <div class="record-meta">链接只在创建成功时展示一次，删除后不会保留。</div>
+          <div class="record-actions">
+            <button class="button button-secondary revoke-button" data-kind="share" data-id="${item.share_id}">删除分享</button>
+          </div>
+        </div>
       </div>
     </div>
   `);

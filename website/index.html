@@ -6,182 +6,209 @@
     <title>deployctl Admin</title>
     <meta
       name="description"
-      content="deployctl 首页管理台。输入 deployd 服务域名和 adminKey，创建用户 token、生成分享链接，并把接管链接交给 agent。"
+      content="deployctl 管理首页。输入 deployd 服务域名和 adminKey，先管理 token，再把分享链接发给 agent 自助接管。"
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@500;700;900&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
-    <div class="ambient ambient-left"></div>
-    <div class="ambient ambient-right"></div>
+    <div class="canvas-noise"></div>
+    <div class="canvas-blur blur-a"></div>
+    <div class="canvas-blur blur-b"></div>
 
-    <main class="shell">
-      <section class="hero">
-        <div>
-          <div class="eyebrow">deployctl · admin homepage</div>
-          <h1>把 token 管理和 agent 分享，压缩成一个 dashboard。</h1>
-          <p class="lead">
-            这里不是文档页，而是 deployctl 的管理首页。连上 deployd 之后，先创建或选择一个已有
-            token，再用最少字段直接生成给 agent 的分享链接。
-          </p>
-        </div>
-        <aside class="status-card">
-          <div class="status-label">当前产品形态</div>
-          <ul>
-            <li>前端：首页由 deployd 同源托管</li>
-            <li>后端：deployd API</li>
-            <li>认证：adminKey + token only</li>
-            <li>接管：短链接 /s/&lt;share_code&gt; -&gt; claim token</li>
-          </ul>
-        </aside>
-      </section>
-
-      <section class="section">
-        <div class="section-head">
-          <span class="section-tag">Connect</span>
-          <h2>先连上你的 deployd。</h2>
-        </div>
-        <div class="panel">
-          <form id="connect-form" class="stack">
-            <label>
-              <span>服务域名</span>
-              <input id="server-url" name="server_url" type="url" placeholder="https://deploy.example.com" required />
-            </label>
-            <label>
-              <span>adminKey</span>
-              <input id="admin-key" name="admin_key" type="password" placeholder="输入 admin secret" required />
-            </label>
-            <div class="actions">
-              <button type="submit" class="button button-primary">连接管理台</button>
-              <button type="button" id="clear-session" class="button button-secondary">清空本地凭据</button>
-            </div>
-          </form>
-          <div id="connect-status" class="status-note">尚未连接。</div>
-        </div>
-      </section>
-
-      <section class="section hidden" id="dashboard">
-        <div class="section-head">
-          <span class="section-tag">Admin</span>
-          <h2>先建 token，再从已有 token 直接生成分享。</h2>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-lockup">
+          <div class="brand-eyebrow">deployctl</div>
+          <div class="brand-title">Admin</div>
         </div>
 
-        <div class="dashboard-grid">
-          <article class="panel">
-            <div class="panel-head">
-              <h3>新建 token</h3>
-            </div>
-            <form id="token-form" class="stack token-form-compact">
-              <label class="wide-field">
-                <span>token 名称</span>
-                <input name="name" placeholder="demo-user" required />
-              </label>
-              <label>
-                <span>scope</span>
-                <select name="scope" required>
-                  <option value="read-only">read-only</option>
-                  <option value="project:demo">project:&lt;slug&gt;</option>
-                  <option value="admin">admin</option>
-                </select>
-              </label>
-              <label data-project-scope-field>
-                <span>project_scope</span>
-                <input name="project_scope" placeholder="仅 scope 为 project:xxx 时填写" />
-              </label>
-              <label>
-                <span>expires_in</span>
-                <input name="expires_in" placeholder="例如 24h，可留空" />
-              </label>
-              <button type="submit" class="button button-primary">创建 token</button>
-            </form>
-            <div id="token-output" class="code-card empty-state">创建后会在这里显示一次性 token。</div>
-          </article>
+        <nav class="sidebar-nav">
+          <button class="nav-item is-active" type="button">首页概览</button>
+          <button class="nav-item" type="button">Token 管理</button>
+          <button class="nav-item" type="button">分享链接</button>
+          <button class="nav-item" type="button">使用日志</button>
+          <button class="nav-item" type="button">系统设置</button>
+        </nav>
 
-          <article class="panel share-builder-panel">
-            <div class="panel-head">
-              <h3>从已有 token 生成分享</h3>
+        <div class="sidebar-footer">
+          <div class="footer-badge">企业版</div>
+          <div class="footer-title">把 agent 接管链路收成一个域名</div>
+          <div class="footer-copy">首页管理、token 选择、短链接分享，都在同一张面板里完成。</div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-topbar">
+          <div class="topbar-copy">
+            <div class="section-tag">Dashboard</div>
+            <h1>把 token 管理和 agent 分享，压缩成一个 dashboard。</h1>
+            <p>
+              先连上 deployd，再从已有 token 直接生成分享链接。不给用户塞多余字段，也不把旧链接当永久资产保留。
+            </p>
+          </div>
+          <div class="topbar-meta">
+            <div class="meta-pill">你好，Admin</div>
+            <div class="meta-pill">同域托管</div>
+          </div>
+        </header>
+
+        <section class="connect-strip section">
+          <div class="panel panel-connect">
+            <div class="panel-intro">
+              <div class="panel-label">服务器连接</div>
+              <h2>所有操作都基于当前 deployd。</h2>
             </div>
-            <div id="selected-token-card" class="selected-token empty-state">
-              先在左侧选择一个 token。选中后，这里会自动带出默认分享配置。
-            </div>
-            <form id="share-form" class="stack hidden">
-              <label class="wide-field">
-                <span>分享名称</span>
-                <input name="share_name" placeholder="agent-handoff" required />
+            <form id="connect-form" class="connect-form">
+              <label>
+                <span>服务器 URL</span>
+                <input id="server-url" name="server_url" type="url" placeholder="https://q.empjs.dev" required />
               </label>
               <label>
-                <span>share_expires_in</span>
-                <input name="share_expires_in" placeholder="例如 24h" value="24h" />
+                <span>AdminKey</span>
+                <input id="admin-key" name="admin_key" type="password" placeholder="输入 admin secret" required />
               </label>
-              <label>
-                <span>max_claims</span>
-                <input name="max_claims" type="number" min="1" value="1" />
-              </label>
-              <div class="actions">
-                <button type="submit" class="button button-primary">生成分享链接</button>
-                <button id="clear-selected-token" type="button" class="button button-secondary">取消选择</button>
+              <div class="connect-actions">
+                <div id="connect-status" class="status-note">尚未连接。</div>
+                <button type="submit" class="button button-primary">连接管理台</button>
+                <button type="button" id="clear-session" class="button button-secondary">清空</button>
               </div>
             </form>
-            <div id="share-output" class="code-card empty-state">生成后会在这里给出可直接发给 agent 的链接。</div>
-          </article>
-        </div>
-
-        <div class="dashboard-grid">
-          <article class="panel">
-            <div class="panel-head">
-              <h3>可分享 token</h3>
-              <button id="refresh-data" class="button button-secondary" type="button">刷新</button>
-            </div>
-            <div id="tokens-list" class="list-card empty-state">暂无数据。</div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-head">
-              <h3>已创建 share link</h3>
-            </div>
-            <div id="shares-list" class="list-card empty-state">暂无数据。</div>
-          </article>
-        </div>
-      </section>
-
-      <section class="section hidden" id="share-claim">
-        <div class="section-head">
-          <span class="section-tag">Agent Handoff</span>
-          <h2>这个链接已经带上了服务域名和接管凭证。</h2>
-        </div>
-
-        <div class="dashboard-grid">
-          <article class="panel">
-            <div class="panel-head">
-              <h3>分享链接状态</h3>
-            </div>
-            <div id="share-resolve-output" class="code-card">正在解析分享链接…</div>
-            <div class="actions">
-              <button id="claim-share" class="button button-primary" type="button">领取 agent token</button>
-            </div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-head">
-              <h3>给 agent 的可执行信息</h3>
-            </div>
-            <textarea id="agent-prompt" readonly class="prompt-box"></textarea>
-          </article>
-        </div>
-
-        <article class="panel">
-          <div class="panel-head">
-            <h3>claim 结果</h3>
           </div>
-          <div id="claim-output" class="code-card empty-state">点击“领取 agent token”后，会在这里显示 server_url 与 token。</div>
-        </article>
-      </section>
-    </main>
+        </section>
+
+        <section class="section hidden" id="dashboard">
+          <div class="dashboard-grid">
+            <article class="panel panel-tokens">
+              <div class="panel-head">
+                <div>
+                  <div class="panel-label">Token</div>
+                  <h3>现有 token</h3>
+                </div>
+                <button id="refresh-data" class="button button-secondary" type="button">刷新</button>
+              </div>
+              <div id="tokens-list" class="list-card empty-state">暂无数据。</div>
+
+              <div class="token-create-block">
+                <div class="subhead">
+                  <div class="subhead-title">创建新 token</div>
+                  <div class="subhead-copy">只在必要时新增。常见场景优先复用现有 token 再生成分享。</div>
+                </div>
+                <form id="token-form" class="stack token-form-compact">
+                  <label class="wide-field">
+                    <span>token 名称</span>
+                    <input name="name" placeholder="prod-agent-token" required />
+                  </label>
+                  <label>
+                    <span>scope</span>
+                    <select name="scope" required>
+                      <option value="read-only">read-only</option>
+                      <option value="project:demo">project:&lt;slug&gt;</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </label>
+                  <label data-project-scope-field>
+                    <span>project_scope</span>
+                    <input name="project_scope" placeholder="仅 project scope 时填写" />
+                  </label>
+                  <label>
+                    <span>expires_in</span>
+                    <input name="expires_in" placeholder="例如 24h，可留空" />
+                  </label>
+                  <button type="submit" class="button button-primary">创建 token</button>
+                </form>
+                <div id="token-output" class="code-card empty-state">创建后会在这里显示一次性 token。</div>
+              </div>
+            </article>
+
+            <div class="right-rail">
+              <article class="panel panel-share-builder">
+                <div class="panel-head">
+                  <div>
+                    <div class="panel-label">Share Builder</div>
+                    <h3>从已有 token 生成分享</h3>
+                  </div>
+                </div>
+
+                <div id="selected-token-card" class="selected-token empty-state">
+                  先在左侧选择一个 token。选中后，这里会自动带出默认分享配置。
+                </div>
+
+                <form id="share-form" class="stack hidden">
+                  <label class="wide-field">
+                    <span>分享名称</span>
+                    <input name="share_name" placeholder="例如：给前端团队的只读访问" required />
+                  </label>
+                  <div class="form-split">
+                    <label>
+                      <span>分享过期时间</span>
+                      <input name="share_expires_in" placeholder="例如 7d" value="24h" />
+                    </label>
+                    <label>
+                      <span>最大领取次数</span>
+                      <input name="max_claims" type="number" min="1" value="1" />
+                    </label>
+                  </div>
+                  <div class="actions">
+                    <button type="submit" class="button button-primary button-wide">生成分享链接</button>
+                    <button id="clear-selected-token" type="button" class="button button-secondary">取消选择</button>
+                  </div>
+                </form>
+
+                <div id="share-output" class="code-card empty-state">生成后会在这里给出可直接发给 agent 的链接。</div>
+              </article>
+
+              <article class="panel panel-shares">
+                <div class="panel-head">
+                  <div>
+                    <div class="panel-label">Share Links</div>
+                    <h3>现有分享链接</h3>
+                  </div>
+                </div>
+                <div id="shares-list" class="list-card empty-state">暂无数据。</div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section hidden" id="share-claim">
+          <div class="panel claim-panel">
+            <div class="section-tag">Agent Handoff</div>
+            <h2>这个短链接已经带上了服务域名和接管凭证。</h2>
+            <div class="claim-grid">
+              <article class="claim-card">
+                <div class="panel-head">
+                  <h3>分享链接状态</h3>
+                </div>
+                <div id="share-resolve-output" class="code-card">正在解析分享链接…</div>
+                <div class="actions">
+                  <button id="claim-share" class="button button-primary" type="button">领取 agent token</button>
+                </div>
+              </article>
+
+              <article class="claim-card">
+                <div class="panel-head">
+                  <h3>给 agent 的可执行信息</h3>
+                </div>
+                <textarea id="agent-prompt" readonly class="prompt-box"></textarea>
+              </article>
+            </div>
+
+            <article class="claim-card claim-result">
+              <div class="panel-head">
+                <h3>claim 结果</h3>
+              </div>
+              <div id="claim-output" class="code-card empty-state">点击“领取 agent token”后，会在这里显示 server_url 与 token。</div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
 
     <script src="./site.js"></script>
   </body>
