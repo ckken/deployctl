@@ -107,14 +107,15 @@ go run ./cmd/deployctl --json --server http://127.0.0.1:7319 upload-link create 
   --admin-key dev-secret
 ```
 
-## 首页
+## Dashboard
 
-首页现在只是一个最小后台，默认同源托管在 `deployd` 所在域名：
+首页是一个同源托管的 dashboard，默认由 `deployd` 所在域名提供：
 
-- 只录入 `adminKey`
+- 用 `adminKey` 登录，凭据只保存在当前浏览器
+- 顶部总览可用链接、剩余上传次数、上传记录和最近活动
 - 一键生成并复制上传链接
-- 高级参数折叠，不挡主路径
-- 展示最近上传链接和最近上传结果
+- 展示上传链接和最近上传结果
+- 点击退出会清空本地 `adminKey` 并回到登录页
 
 相关文件：
 

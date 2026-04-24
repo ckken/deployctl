@@ -3,80 +3,136 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>deployctl 0.3</title>
+    <title>deployctl dashboard</title>
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="hero">
-        <p class="eyebrow">deployctl 0.3</p>
-        <h1>生成上传链接，发给 agent，直接传文件。</h1>
-        <p class="hero-copy">
-          服务部署在当前域名下。管理侧只需要一个 <code>adminKey</code>，默认就能生成 24 小时、单文件的上传链接；需要时再展开高级参数指定目录和时间。
-        </p>
-      </section>
-
-      <section class="panel">
-        <div class="panel-heading">
-          <div>
-            <h2>上传授权</h2>
-            <p>当前服务域名：<span id="server-origin"></span></p>
-          </div>
-          <button id="clear-admin-key" class="ghost-button" type="button">清空 adminKey</button>
+    <main class="auth-view" id="auth-view">
+      <section class="auth-card">
+        <div>
+          <p class="eyebrow">deployctl</p>
+          <h1>上传授权后台</h1>
+          <p class="muted">输入 adminKey 进入 dashboard。凭据只保存在当前浏览器。</p>
         </div>
-
-        <form id="grant-form" class="stack">
+        <form id="login-form" class="auth-form">
           <label class="field">
             <span>adminKey</span>
-            <input id="admin-key" name="adminKey" type="password" placeholder="输入一次后会保存在本地" autocomplete="off" required />
+            <input id="login-admin-key" name="adminKey" type="password" autocomplete="off" required />
           </label>
-
-          <details class="advanced">
-            <summary>高级参数</summary>
-            <div class="advanced-grid">
-              <label class="field">
-                <span>folder</span>
-                <input id="folder" name="folder" type="text" placeholder="默认 uploads/YYYY/MM/DD" />
-              </label>
-              <label class="field">
-                <span>expires_in</span>
-                <input id="expires-in" name="expiresIn" type="text" value="24h" />
-              </label>
-              <label class="field">
-                <span>max_files</span>
-                <input id="max-files" name="maxFiles" type="number" min="1" value="1" />
-              </label>
-            </div>
-          </details>
-
-          <div class="actions">
-            <button id="generate-link" class="primary-button" type="submit">生成并复制上传链接</button>
-            <button id="refresh-data" class="secondary-button" type="button">刷新</button>
-          </div>
+          <button class="primary-button" type="submit">进入 dashboard</button>
         </form>
-
-        <p id="status" class="status">输入 adminKey 后即可生成上传链接。</p>
+        <p id="login-status" class="status">当前服务：<span id="login-server-origin"></span></p>
       </section>
+    </main>
 
-      <section class="panel result-panel">
-        <div class="panel-heading">
-          <div>
-            <h2>最近生成的链接</h2>
-            <p>删除后立即失效，不保留旧地址。</p>
-          </div>
+    <main class="dashboard is-hidden" id="dashboard-view">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <p class="eyebrow">deployctl</p>
+          <strong>Dashboard</strong>
         </div>
-        <div id="latest-link" class="empty">还没有生成上传链接。</div>
-        <div id="links-list" class="list"></div>
-      </section>
+        <nav class="nav-list" aria-label="dashboard sections">
+          <a href="#overview" class="nav-item is-active">总览</a>
+          <a href="#create" class="nav-item">授权</a>
+          <a href="#links" class="nav-item">上传链接</a>
+          <a href="#uploads" class="nav-item">上传记录</a>
+        </nav>
+        <button id="logout-button" class="logout-button" type="button">退出</button>
+      </aside>
 
-      <section class="panel result-panel">
-        <div class="panel-heading">
+      <section class="workspace">
+        <header class="topbar">
           <div>
-            <h2>最近上传结果</h2>
-            <p>上传完成后会在这里看到文件地址和保存目录。</p>
+            <p class="eyebrow">当前服务</p>
+            <h1 id="server-origin"></h1>
           </div>
-        </div>
-        <div id="uploads-list" class="list empty">还没有上传记录。</div>
+          <div class="topbar-actions">
+            <button id="refresh-data" class="secondary-button" type="button">刷新</button>
+            <button id="top-logout-button" class="ghost-button" type="button">退出</button>
+          </div>
+        </header>
+
+        <section id="overview" class="metric-grid" aria-label="dashboard metrics">
+          <article class="metric">
+            <span>可用链接</span>
+            <strong id="metric-links">0</strong>
+          </article>
+          <article class="metric">
+            <span>剩余上传次数</span>
+            <strong id="metric-remaining">0</strong>
+          </article>
+          <article class="metric">
+            <span>上传记录</span>
+            <strong id="metric-uploads">0</strong>
+          </article>
+          <article class="metric">
+            <span>最近活动</span>
+            <strong id="metric-latest">无</strong>
+          </article>
+        </section>
+
+        <section id="create" class="dashboard-grid">
+          <section class="panel action-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>生成上传授权</h2>
+                <p>默认 24 小时、单文件；生成后自动复制链接。</p>
+              </div>
+            </div>
+
+            <form id="grant-form" class="stack">
+              <div class="form-grid">
+                <label class="field">
+                  <span>folder</span>
+                  <input id="folder" name="folder" type="text" placeholder="uploads/YYYY/MM/DD" />
+                </label>
+                <label class="field">
+                  <span>expires_in</span>
+                  <input id="expires-in" name="expiresIn" type="text" value="24h" />
+                </label>
+                <label class="field compact-field">
+                  <span>max_files</span>
+                  <input id="max-files" name="maxFiles" type="number" min="1" value="1" />
+                </label>
+              </div>
+              <div class="actions">
+                <button id="generate-link" class="primary-button" type="submit">生成并复制</button>
+              </div>
+            </form>
+
+            <p id="status" class="status">已连接，等待操作。</p>
+          </section>
+
+          <section class="panel latest-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>最新链接</h2>
+                <p>刚生成的链接会固定在这里。</p>
+              </div>
+            </div>
+            <div id="latest-link" class="empty">还没有生成上传链接。</div>
+          </section>
+        </section>
+
+        <section id="links" class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>上传链接</h2>
+              <p>删除后链接立即失效。</p>
+            </div>
+          </div>
+          <div id="links-list" class="records empty">还没有可用上传链接。</div>
+        </section>
+
+        <section id="uploads" class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>上传记录</h2>
+              <p>按最近上传时间排序。</p>
+            </div>
+          </div>
+          <div id="uploads-list" class="records empty">还没有上传记录。</div>
+        </section>
       </section>
     </main>
 
