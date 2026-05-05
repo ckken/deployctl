@@ -23,6 +23,7 @@ func usage() {
 
 Usage:
   deployd serve --listen :7319 --data-dir ./.deployctl-data --admin-secret secret --web-dir ./website
+  DEPLOYD_ADMIN_SECRET=secret deployd serve --listen :7319 --data-dir ./.deployctl-data --web-dir ./website
   deployd admin create-token --data-dir ./.deployctl-data --admin-secret secret --name ci-bot --scope read-only
   deployd admin list-tokens --data-dir ./.deployctl-data --admin-secret secret
   deployd admin revoke-token --data-dir ./.deployctl-data --admin-secret secret --token-id tok_xxx
@@ -62,6 +63,9 @@ func runServe(args []string) error {
 	adminSecret := fs.String("admin-secret", "", "admin secret")
 	webDir := fs.String("web-dir", "./website", "website directory to serve at /")
 	fs.Parse(args)
+	if *adminSecret == "" {
+		*adminSecret = os.Getenv("DEPLOYD_ADMIN_SECRET")
+	}
 	requireAdminSecret(*adminSecret)
 
 	store := mustStore(*dataDir)
